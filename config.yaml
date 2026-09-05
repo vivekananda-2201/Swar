@@ -1,0 +1,153 @@
+# ==============================================================================
+# Voice Pipeline Master Configuration File
+# Edit this file to safely adjust any setting without modifying Python code.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. General & Hardware Settings
+# ------------------------------------------------------------------------------
+general:
+  # Hardware compute device: "cpu" or "cuda"
+  device: "cpu"
+
+  # Headless mode:
+  # If false, the pipeline prints 0 lines to terminal (safe for your UI / dashboard)
+  # If true, the pipeline prints model loading and status messages
+  verbose: false
+
+  # Barge-in (Interruption) mode:
+  # - true:  Full-Duplex. If you speak while the assistant is speaking, it immediately
+  #          cuts off speech and listens to you. (Recommended for quiet rooms / headphones)
+  # - false: Half-Duplex. The assistant finishes speaking completely. Background noise
+  #          or loudspeaker echo will NEVER interrupt the assistant. (Recommended for noisy rooms)
+  allow_barge_in: true
+
+  # Audio input/output device index or name (null = system default device)
+  input_device: null
+  output_device: null
+
+# ------------------------------------------------------------------------------
+# 2. Silero VAD (Voice Activity Detection) Settings
+# ------------------------------------------------------------------------------
+vad:
+  # Speech probability threshold (0.0 to 1.0). Higher = less sensitive to background noise.
+  threshold: 0.6
+
+  # Minimum silence duration in milliseconds before concluding the user has finished speaking
+  min_silence_ms: 800
+
+  # Minimum speech duration in milliseconds to be recognized as a valid utterance
+  min_speech_ms: 384
+
+  # Continuity window in milliseconds: bridges natural conversational pauses within phrases
+  min_speech_continuation_ms: 192
+
+  # Pre-speech audio buffer in milliseconds.
+  # 500ms preserves the beginning of your speech so the first 1-2 words are never cut off.
+  speech_pad_ms: 500
+
+  # Interval in seconds to dispatch partial/interim transcription events while speaking
+  progressive_interval: 0.5
+
+# ------------------------------------------------------------------------------
+# 3. NVIDIA Parakeet TDT STT (Speech-to-Text) Settings
+# ------------------------------------------------------------------------------
+stt:
+  # Hugging Face model identifier for Parakeet TDT
+  model_name: "nvidia/parakeet-tdt-0.6b-v3"
+
+  # Language code
+  language: "en"
+
+  # Stream live partial transcripts while the user is actively speaking
+  enable_live_transcription: true
+
+# ------------------------------------------------------------------------------
+# 4. Kokoro-82M TTS (Text-to-Speech Engine) Settings
+# ------------------------------------------------------------------------------
+tts:
+  # Kokoro voice name:
+  # American Female: af_bella, af_sarah, af_nicole, af_sky, af_alloy
+  # American Male:   am_adam, am_michael, am_echo, am_eric, am_liam, am_onyx
+  # British Female:  bf_emma, bf_isabella, bf_alice, bf_lily
+  # British Male:    bm_george, bm_fable, bm_lewis, bm_daniel
+  voice: "af_bella"
+
+  # Speech speed multiplier (e.g., 1.0 = normal, 1.15 = faster, 0.9 = slower)
+  speed: 1.0
+
+  # Language code ('a' = American English, 'b' = British English)
+  lang_code: "a"
+
+  # Native Kokoro sample rate in Hz
+  sample_rate: 24000
+
+  # Producer-Consumer Threading & Buffer Queues:
+  # Maximum number of text chunks queued ahead for synthesis
+  max_text_queue_size: 100
+
+  # Maximum number of synthesized audio items held in the ready-playback queue
+  max_audio_queue_size: 50
+
+# ------------------------------------------------------------------------------
+# 5. Progressive & Adaptive Sentence Chunking Settings
+# ------------------------------------------------------------------------------
+chunking:
+  # Strategy: "progressive", "adaptive", or "single"
+  # - "progressive": Fast initial sentence (low TTFT), followed by larger natural sentences
+  # - "adaptive": Dynamically adjusts chunk size based on remaining seconds in audio buffer
+  # - "single": Synthesize sentence-by-sentence strictly 1 at a time
+  strategy: "adaptive"
+
+  # Progressive stages: list of [max_chunks, sentences_per_chunk]
+  # Example below:
+  # - Chunks 1 & 2: synthesize 1 sentence each (fastest first audio response)
+  # - Chunks 3+:    synthesize 3 sentences at a time (smoother, higher prosody)
+  progressive_stages:
+    - [2, 1]
+    - [-1, 3]
+
+  # Adaptive buffer thresholds (used when strategy is "adaptive"):
+  target_buffer_seconds: 5.0
+  low_buffer_seconds: 1.5
+  medium_buffer_seconds: 3.5
+  low_buffer_sentences: 1
+  medium_buffer_sentences: 2
+  high_buffer_sentences: 3
+
+  # Minimum words required before a period can be considered a sentence terminator
+  min_words_for_boundary: 2
+
+# ------------------------------------------------------------------------------
+# 6. Wake Word & Wake Sentence Detection (wake_mode)
+# ------------------------------------------------------------------------------
+wake_word:
+  # Master toggle for wake word mode:
+  # - false: Pipeline is always listening and immediately forwards speech to your agent.
+  # - true:  Pipeline starts in STANDBY (sleeping) and only activates when you speak
+  #          one of the configured wake words or wake sentences.
+  enabled: false
+
+  # Default inactivity timeout in seconds if not specified on a trigger
+  default_timeout: 15.0
+
+  # If true, strips the wake phrase before forwarding speech to your agent/LLM.
+  # If false (recommended), forwards the complete transcription as-is to your agent.
+  strip_wake_phrase: false
+
+  # If true, the wake phrase must appear strictly at the beginning of the sentence.
+  # If false (recommended), triggers if the sentence contains the wake word/phrase anywhere (case-insensitive).
+  prefix_only: false
+
+  # Configurable wake triggers (words or multi-word sentences):
+  # Each trigger can have its own custom conversation timeout duration in seconds!
+  # Once activated, follow-up exchanges during this timeout window do not require repeating the wake word.
+  triggers:
+    - phrase: "hey assistant"
+      timeout: 20.0
+    - phrase: "jarvis"
+      timeout: 15.0
+    - phrase: "relic"
+      timeout: 10.0
+    - phrase: "take a note"
+      timeout: 30.0
