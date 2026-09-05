@@ -413,7 +413,7 @@ class VoicePipeline:
         """Cancels ongoing TTS playback and generation on speech detection or Parakeet transcription."""
         was_interrupted = self._active_turn_interrupted.is_set()
         self._active_turn_interrupted.set()
-        self._active_turn_id += 1
+        interrupted_turn = self._active_turn_id
         self.tts_pipeline.interrupt()
         self._is_generating_response = False
 
@@ -426,7 +426,10 @@ class VoicePipeline:
 
         if not was_interrupted:
             if self.on_interrupted:
-                self.on_interrupted()
+                try:
+                    self.on_interrupted(interrupted_turn)
+                except TypeError:
+                    self.on_interrupted()
             if self.verbose:
                 console.print("\n[red][Barge-in: speech interrupted][/red]")
 
@@ -481,7 +484,7 @@ class VoicePipeline:
 
             # 1. Speech Started Event (VAD detected speech)
             if isinstance(event, SpeechStartedEvent):
-                if self.allow_barge_in and (self.tts_pipeline.is_speaking or self._is_generating_response):
+                if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
                     self._handle_interruption()
                 self.wake_engine.activity()
                 if self.on_speech_started:
@@ -489,7 +492,7 @@ class VoicePipeline:
 
             # 2. Interim / Progressive Transcription Event (Parakeet started transcription while user speaks)
             elif isinstance(event, PartialTranscriptionEvent):
-                if self.allow_barge_in and (self.tts_pipeline.is_speaking or self._is_generating_response):
+                if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
                     self._handle_interruption()
                 delta = getattr(event, "delta", "").strip()
                 if delta:
@@ -508,7 +511,7 @@ class VoicePipeline:
 
             # 3. Final Transcription Completed Event (turn finished)
             elif isinstance(event, TranscriptionCompletedEvent):
-                if self.allow_barge_in and (self.tts_pipeline.is_speaking or self._is_generating_response):
+                if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
                     self._handle_interruption()
 
                 # Commit turn in speculative tracker and clear prefix

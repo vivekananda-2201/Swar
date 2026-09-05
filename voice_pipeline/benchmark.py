@@ -158,12 +158,27 @@ class BenchmarkLogger:
                 "tts_chunks": [],
             }
 
+    def _get_turn_record(self, turn_id: Optional[int]) -> Optional[Dict[str, Any]]:
+        """Retrieves a turn record from active or completed turns, or fallback to latest."""
+        if turn_id is not None:
+            if turn_id in self.current_turns:
+                return self.current_turns[turn_id]
+            for t in reversed(self.completed_turns):
+                if t.get("turn_id") == turn_id:
+                    return t
+        # Fallback to latest active or completed
+        if self.current_turns:
+            return list(self.current_turns.values())[-1]
+        if self.completed_turns:
+            return self.completed_turns[-1]
+        return None
+
     def record_llm_metrics(self, turn_id: int, llm_metrics: Dict[str, Any]) -> None:
         """Updates turn record with LLM token streaming metrics."""
         with self._lock:
-            if turn_id not in self.current_turns:
+            t = self._get_turn_record(turn_id)
+            if t is None:
                 return
-            t = self.current_turns[turn_id]
             timings = t["timings"]
 
             timings["llm_ttft_ms"] = llm_metrics.get("ttft_ms")
@@ -180,6 +195,9 @@ class BenchmarkLogger:
                     "word_count": len(full_text.split()),
                 }
 
+            if turn_id not in self.current_turns:
+                self._rewrite_and_update_summary()
+
     def record_tts_chunk(
         self,
         turn_id: int,
@@ -190,9 +208,9 @@ class BenchmarkLogger:
     ) -> None:
         """Records Kokoro synthesis completion for an individual sentence chunk."""
         with self._lock:
-            if turn_id not in self.current_turns:
+            t = self._get_turn_record(turn_id)
+            if t is None:
                 return
-            t = self.current_turns[turn_id]
             timings = t["timings"]
 
             synth_ms = round(gen_duration * 1000, 2)
@@ -207,12 +225,14 @@ class BenchmarkLogger:
                 "rtf": rtf,
                 "speedup_x": speedup,
             }
-            t["tts_chunks"].append(chunk_info)
-
-            # Aggregate chunk stats
-            timings["tts_total_chunks"] += 1
-            timings["tts_total_audio_s"] = round(timings["tts_total_audio_s"] + duration_s, 3)
-            timings["tts_total_synth_ms"] = round(timings["tts_total_synth_ms"] + synth_ms, 2)
+            existing_idx = next((i for i, c in enumerate(t["tts_chunks"]) if c.get("chunk_id") == chunk_id), None)
+            if existing_idx is None:
+                t["tts_chunks"].append(chunk_info)
+                timings["tts_total_chunks"] += 1
+                timings["tts_total_audio_s"] = round(timings["tts_total_audio_s"] + duration_s, 3)
+                timings["tts_total_synth_ms"] = round(timings["tts_total_synth_ms"] + synth_ms, 2)
+            else:
+                t["tts_chunks"][existing_idx] = chunk_info
 
             # Record Chunk 1 specific metrics (critical for Time-to-First-Audio)
             if chunk_id == 1 or timings["tts_chunk1_synth_ms"] is None:
@@ -221,12 +241,15 @@ class BenchmarkLogger:
                 timings["tts_chunk1_rtf"] = rtf
                 timings["tts_chunk1_speedup_x"] = speedup
 
+            if turn_id not in self.current_turns:
+                self._rewrite_and_update_summary()
+
     def record_playback_start(self, turn_id: int, chunk_id: int) -> None:
         """Records the exact moment sound card begins playing audio."""
         with self._lock:
-            if turn_id not in self.current_turns:
+            t = self._get_turn_record(turn_id)
+            if t is None:
                 return
-            t = self.current_turns[turn_id]
             timings = t["timings"]
 
             # Time to First Audio is triggered by Chunk 1 playback start
@@ -236,35 +259,44 @@ class BenchmarkLogger:
                 ttfa = (t_playback_start - t_start) * 1000
                 timings["ttfa_ms"] = round(ttfa, 2)
 
-    def record_interruption(self, turn_id: int) -> None:
+                if turn_id not in self.current_turns:
+                    self._rewrite_and_update_summary()
+
+    def record_interruption(self, turn_id: Optional[int] = None) -> None:
         """Records barge-in interruption."""
         with self._lock:
-            if turn_id not in self.current_turns:
+            t = self._get_turn_record(turn_id)
+            if t is None:
                 return
-            t = self.current_turns[turn_id]
             t["was_interrupted"] = True
             t["timings"]["interruption_reaction_ms"] = 21.3
+            self._rewrite_and_update_summary()
 
     def finish_turn(self, turn_id: int) -> Optional[Dict[str, Any]]:
         """Finalizes a turn, persists it to JSONL, and updates latest_summary.json."""
         with self._lock:
-            if turn_id not in self.current_turns:
-                return None
+            if turn_id in self.current_turns:
+                turn_data = self.current_turns.pop(turn_id)
+                self.completed_turns.append(turn_data)
+            else:
+                turn_data = self._get_turn_record(turn_id)
+                if turn_data is None:
+                    return None
 
-            turn_data = self.current_turns.pop(turn_id)
-            # Remove internal wall-clock start reference before saving
-            turn_data.pop("t_turn_start", None)
-
-            # Append to session JSONL
-            try:
-                with open(self.session_file, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(turn_data) + "\n")
-            except Exception as e:
-                logger.error(f"Failed to append turn to {self.session_file}: {e}")
-
-            self.completed_turns.append(turn_data)
-            self._update_summary_file()
+            self._rewrite_and_update_summary()
             return turn_data
+
+    def _rewrite_and_update_summary(self) -> None:
+        """Atomically synchronizes session JSONL and latest_summary.json."""
+        try:
+            with open(self.session_file, "w", encoding="utf-8") as f:
+                for turn_item in self.completed_turns:
+                    save_data = {k: v for k, v in turn_item.items() if k != "t_turn_start"}
+                    f.write(json.dumps(save_data) + "\n")
+        except Exception as e:
+            logger.error(f"Failed to write {self.session_file}: {e}")
+        self._update_summary_file()
+
 
     def _update_summary_file(self) -> None:
         """Calculates running statistics and saves to latest_summary.json."""

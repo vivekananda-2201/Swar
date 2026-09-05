@@ -41,7 +41,7 @@ console = Console()
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a friendly, fast, and conversational voice AI assistant. "
-    "Always keep answers brief and natural, within 1 to 2 spoken sentences. "
+    "Always keep answers brief and natural, within 1 to 3 spoken sentences. "
     "Never use markdown tables, asterisks, or bullet points."
 )
 
@@ -155,6 +155,7 @@ def main():
 
         console.print(f"\n[bold yellow]You:[/bold yellow] {user_transcript}")
         console.print("[cyan]Assistant generating...[/cyan]")
+        had_sentences = False
         try:
             # Stream sentence by sentence directly to Kokoro TTS
             # Kokoro plays the 1st sentence while LLM generates the 2nd!
@@ -164,25 +165,29 @@ def main():
                     break
                 console.print(f"[bold green]Assistant:[/bold green] {sentence}")
                 pipeline.speak_text(sentence)
+                had_sentences = True
         except Exception as e:
             console.print(f"[bold red]LLM Error:[/bold red] {e}")
         finally:
             # Record LLM generation metrics (TTFT, tokens/sec, full reply)
             benchmark.record_llm_metrics(turn_id, llm.last_metrics)
 
-            # Wait for playback to complete or interruption to occur
-            while pipeline.tts_pipeline.is_speaking and not pipeline.is_interrupted:
-                time.sleep(0.02)
+            # Wait for Kokoro to synthesize and playback to complete (or barge-in interruption)
+            if had_sentences:
+                time.sleep(0.05)
+                while pipeline.tts_pipeline.is_turn_busy(turn_id) and not pipeline.is_interrupted:
+                    time.sleep(0.03)
 
             # Finalize turn metrics, persist to JSONL, and print developer card
             turn_data = benchmark.finish_turn(turn_id)
             if turn_data:
                 benchmark.print_turn_card(turn_data, console)
 
-    def on_interrupted():
+    def on_interrupted(turn_id: Optional[int] = None):
         sys.stdout.write("\r\033[K")
-        console.print("[red][Interrupted: User started speaking (~21ms cutoff)][/red]")
-        benchmark.record_interruption(pipeline.active_turn_id)
+        effective_turn = turn_id if turn_id is not None else pipeline.active_turn_id
+        console.print(f"[red][Interrupted: Turn #{effective_turn} interrupted (~21ms cutoff)][/red]")
+        benchmark.record_interruption(effective_turn)
 
     def on_chunk_synthesized(turn_id: int, chunk_id: int, text: str, gen_duration: float, duration_s: float):
         benchmark.record_tts_chunk(turn_id, chunk_id, text, gen_duration, duration_s)

@@ -161,6 +161,8 @@ class TTSPipeline:
         self._current_turn_id = 0
         self._active_stream: Optional[sd.OutputStream] = None
         self._active_playing_item: Optional[AudioItem] = None
+        self._is_generating = False
+        self._current_generating_turn_id: Optional[int] = None
         self._lock = threading.RLock()
 
         # Observability Callbacks
@@ -183,9 +185,43 @@ class TTSPipeline:
             return total_duration
 
     @property
+    def is_generating(self) -> bool:
+        """True if the generation worker is actively synthesizing an audio chunk."""
+        return self._is_generating
+
+    @property
+    def is_busy(self) -> bool:
+        """True if text is queued, Kokoro is synthesizing, audio is queued, or audio is playing."""
+        with self._lock:
+            return (
+                not self.text_queue.empty()
+                or self._is_generating
+                or not self.ready_audio_queue.empty()
+                or self._active_playing_item is not None
+            )
+
+    @property
     def is_speaking(self) -> bool:
         """True if audio is currently playing or ready in queue."""
-        return self._active_playing_item is not None or not self.ready_audio_queue.empty()
+        with self._lock:
+            return self._active_playing_item is not None or not self.ready_audio_queue.empty()
+
+    def is_turn_busy(self, turn_id: int) -> bool:
+        """Checks if a specific conversational turn is still being processed in TTS."""
+        with self._lock:
+            if self.cancel_current_turn_event.is_set() or turn_id < self._current_turn_id:
+                return False
+            if self._current_generating_turn_id == turn_id:
+                return True
+            if self._active_playing_item is not None and getattr(self._active_playing_item, "turn_id", 0) == turn_id:
+                return True
+            for q_item in list(self.text_queue.queue):
+                if q_item is not None and q_item[0] == turn_id:
+                    return True
+            for a_item in list(self.ready_audio_queue.queue):
+                if a_item is not None and isinstance(a_item, AudioItem) and getattr(a_item, "turn_id", 0) == turn_id:
+                    return True
+            return False
 
     def start(self) -> None:
         """Starts both generation and playback background workers."""
@@ -247,6 +283,7 @@ class TTSPipeline:
                     break
 
             self._active_playing_item = None
+            self._current_generating_turn_id = None
             self.sentence_chunker.reset()
         logger.debug(f"TTS Pipeline interrupted. Advanced to turn epoch #{self._current_turn_id}.")
 
@@ -346,16 +383,24 @@ class TTSPipeline:
             with self._lock:
                 if turn_id < self._current_turn_id or self.cancel_current_turn_event.is_set():
                     continue
+                self._is_generating = True
+                self._current_generating_turn_id = turn_id
 
             logger.debug(f"TTS Generating chunk #{chunk_id} (turn #{turn_id}): {text[:50]}...")
             start_t = time.perf_counter()
 
-            audio = self.tts.synthesize_chunk(
-                text=text,
-                cancel_event=self.cancel_current_turn_event,
-            )
+            try:
+                audio = self.tts.synthesize_chunk(
+                    text=text,
+                    cancel_event=self.cancel_current_turn_event,
+                )
+            finally:
+                with self._lock:
+                    self._is_generating = False
+                    self._current_generating_turn_id = None
 
             gen_duration = time.perf_counter() - start_t
+
 
             with self._lock:
                 is_stale = turn_id < self._current_turn_id or self.cancel_current_turn_event.is_set()
