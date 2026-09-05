@@ -512,5 +512,3 @@ When deploying Swar in enterprise or production environments:
    Use the decoupled STT and TTS engines directly via their Python API (`tts_pipeline.feed_text()`, `stt_handler.transcribe_final()`) and stream raw PCM bytes over TCP/gRPC/WebSockets rather than `sounddevice`.
 
 ---
-
-*Authored by the DeepMind & Antigravity Engineering Collaboration — September 2026.*
