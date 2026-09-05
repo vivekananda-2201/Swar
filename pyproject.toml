@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swar"
+version = "0.1.0"
+description = "Swar: High-Performance Real-Time Voice Pipeline (CPU-Native Silero VAD + Parakeet TDT STT + Kokoro TTS)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4.0",
+    "torchaudio>=2.4.0",
+    "nano-parakeet>=0.2.1",
+    "kokoro>=0.9.4",
+    "sounddevice>=0.5.0",
+    "soundfile>=0.12.0",
+    "numpy>=1.26.0",
+    "rich>=13.0",
+    "openai>=1.0.0",
+    "requests>=2.28.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["voice_pipeline*"]
