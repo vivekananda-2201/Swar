@@ -4,7 +4,7 @@
 *Silero VAD + NVIDIA Parakeet TDT STT + Kokoro-82M TTS*
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Platform: Linux / macOS / Windows](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![Hardware: CPU Native (GPU Supported)](https://img.shields.io/badge/hardware-CPU%20Native%20(GPU%20Supported)-orange.svg)]()
 
@@ -370,5 +370,5 @@ Included in the deep-dive:
 
 ## 📄 License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU AGPL-3.0 License — see the [LICENSE](LICENSE) file for details.
 All underlying models retain their original open-source licenses (Silero: MIT, Parakeet TDT: CC-BY-4.0, Kokoro: Apache-2.0).
