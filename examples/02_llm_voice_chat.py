@@ -11,6 +11,8 @@ Usage:
   python examples/02_llm_voice_chat.py --system-prompt "You are a sarcastic robot assistant."
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import signal
@@ -18,6 +20,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
+from typing import Optional
 
 # Suppress harmless PyTorch/Kokoro and upstream deprecation warnings
 warnings.filterwarnings("ignore", category=UserWarning)
