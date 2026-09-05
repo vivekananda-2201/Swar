@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Callable, Generator, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ class LLMClient:
         self.conversation_history: List[dict] = [
             {"role": "system", "content": self.system_prompt}
         ]
+        self.last_metrics: dict = {}
 
         self._client = None
         if not custom_handler:
@@ -141,8 +143,15 @@ class LLMClient:
         """
         Sends the user transcript to the LLM.
         Yields complete sentences one by one as they are generated.
+        Tracks precise streaming token timing, TTFT, and tokens/sec metrics.
         """
         self.add_message("user", user_prompt)
+        t_start = time.perf_counter()
+        t_first_token: Optional[float] = None
+        t_first_sentence: Optional[float] = None
+        token_count = 0
+        sentence_count = 0
+        full_reply = ""
 
         # If user provided a custom agent handler
         if self.custom_handler is not None:
@@ -150,11 +159,43 @@ class LLMClient:
             tokens = iter([result]) if isinstance(result, str) else result
             if self.disable_thinking:
                 tokens = strip_thinking_tokens(tokens)
-            full_reply = ""
-            for sentence in split_sentences_stream(tokens):
-                full_reply += " " + sentence
-                yield sentence
-            self.add_message("assistant", full_reply.strip())
+
+            def _custom_tokens():
+                nonlocal t_first_token, token_count
+                for tok in tokens:
+                    if t_first_token is None:
+                        t_first_token = time.perf_counter()
+                    token_count += 1
+                    yield tok
+
+            try:
+                for sentence in split_sentences_stream(_custom_tokens()):
+                    if t_first_sentence is None:
+                        t_first_sentence = time.perf_counter()
+                    sentence_count += 1
+                    full_reply += " " + sentence
+                    yield sentence
+            finally:
+                t_end = time.perf_counter()
+                duration = t_end - t_start
+                ttft_ms = (t_first_token - t_start) * 1000 if t_first_token else 0.0
+                ttfs_ms = (t_first_sentence - t_start) * 1000 if t_first_sentence else 0.0
+                tok_per_sec = token_count / duration if duration > 0 else 0.0
+                self.last_metrics = {
+                    "t_start": t_start,
+                    "t_first_token": t_first_token,
+                    "t_first_sentence": t_first_sentence,
+                    "t_end": t_end,
+                    "ttft_ms": round(ttft_ms, 2),
+                    "ttfs_ms": round(ttfs_ms, 2),
+                    "total_ms": round(duration * 1000, 2),
+                    "token_count": token_count,
+                    "tokens_per_sec": round(tok_per_sec, 2),
+                    "sentence_count": sentence_count,
+                    "full_text": full_reply.strip(),
+                }
+                if full_reply.strip():
+                    self.add_message("assistant", full_reply.strip())
             return
 
         # Default OpenAI-compatible API
@@ -190,25 +231,67 @@ class LLMClient:
                     raise
 
             def _token_generator():
+                nonlocal t_first_token, token_count
                 for chunk in response:
                     if chunk.choices and chunk.choices[0].delta:
                         delta = chunk.choices[0].delta.content
                         if delta:
+                            if t_first_token is None:
+                                t_first_token = time.perf_counter()
+                            token_count += 1
                             yield delta
 
             token_stream = _token_generator()
             if self.disable_thinking:
                 token_stream = strip_thinking_tokens(token_stream)
 
-            full_reply = ""
-            for sentence in split_sentences_stream(token_stream):
-                full_reply += " " + sentence
-                yield sentence
-
-            self.add_message("assistant", full_reply.strip())
+            try:
+                for sentence in split_sentences_stream(token_stream):
+                    if t_first_sentence is None:
+                        t_first_sentence = time.perf_counter()
+                    sentence_count += 1
+                    full_reply += " " + sentence
+                    yield sentence
+            finally:
+                t_end = time.perf_counter()
+                duration = t_end - t_start
+                ttft_ms = (t_first_token - t_start) * 1000 if t_first_token else 0.0
+                ttfs_ms = (t_first_sentence - t_start) * 1000 if t_first_sentence else 0.0
+                tok_per_sec = token_count / duration if duration > 0 else 0.0
+                self.last_metrics = {
+                    "t_start": t_start,
+                    "t_first_token": t_first_token,
+                    "t_first_sentence": t_first_sentence,
+                    "t_end": t_end,
+                    "ttft_ms": round(ttft_ms, 2),
+                    "ttfs_ms": round(ttfs_ms, 2),
+                    "total_ms": round(duration * 1000, 2),
+                    "token_count": token_count,
+                    "tokens_per_sec": round(tok_per_sec, 2),
+                    "sentence_count": sentence_count,
+                    "full_text": full_reply.strip(),
+                }
+                if full_reply.strip():
+                    self.add_message("assistant", full_reply.strip())
 
         except Exception as e:
             logger.error(f"LLM API request failed: {e}")
             fallback = "I heard you, but my language model endpoint is currently unavailable."
+            t_end = time.perf_counter()
+            self.last_metrics = {
+                "t_start": t_start,
+                "t_first_token": None,
+                "t_first_sentence": None,
+                "t_end": t_end,
+                "ttft_ms": 0.0,
+                "ttfs_ms": 0.0,
+                "total_ms": round((t_end - t_start) * 1000, 2),
+                "token_count": 0,
+                "tokens_per_sec": 0.0,
+                "sentence_count": 1,
+                "full_text": fallback,
+                "error": str(e),
+            }
             yield fallback
             self.add_message("assistant", fallback)
+

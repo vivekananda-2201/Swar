@@ -163,6 +163,11 @@ class TTSPipeline:
         self._active_playing_item: Optional[AudioItem] = None
         self._lock = threading.RLock()
 
+        # Observability Callbacks
+        self.on_chunk_synthesized: Optional[Callable[[int, int, str, float, float], None]] = None
+        self.on_playback_start: Optional[Callable[[int, int], None]] = None
+        self.on_playback_complete: Optional[Callable[[int, int, bool], None]] = None
+
     @property
     def buffered_audio_seconds(self) -> float:
         """
@@ -369,6 +374,11 @@ class TTSPipeline:
                     f"(ahead buffer: {self.buffered_audio_seconds:.2f}s)"
                 )
                 self.ready_audio_queue.put(audio_item)
+                if self.on_chunk_synthesized:
+                    try:
+                        self.on_chunk_synthesized(turn_id, chunk_id, text, gen_duration, duration_s)
+                    except Exception as e:
+                        logger.debug(f"Error in on_chunk_synthesized: {e}")
 
     def _playback_worker(self) -> None:
         """
@@ -404,14 +414,29 @@ class TTSPipeline:
                     # Write in 512-sample blocks to allow immediate barge-in interruption (<21ms)
                     chunk_size = 512
                     audio_data = item.audio
+                    turn_started_fired = False
+                    interrupted = False
                     for i in range(0, len(audio_data), chunk_size):
                         with self._lock:
                             interrupted = item.turn_id < self._current_turn_id or self.cancel_current_turn_event.is_set()
                         if interrupted or self.stop_event.is_set():
                             logger.debug("Playback interrupted mid-chunk.")
                             break
+                        if not turn_started_fired:
+                            turn_started_fired = True
+                            if self.on_playback_start:
+                                try:
+                                    self.on_playback_start(item.turn_id, item.chunk_id)
+                                except Exception as e:
+                                    logger.debug(f"Error in on_playback_start: {e}")
                         slice_chunk = audio_data[i : i + chunk_size]
                         stream.write(slice_chunk)
+
+                    if self.on_playback_complete:
+                        try:
+                            self.on_playback_complete(item.turn_id, item.chunk_id, interrupted)
+                        except Exception as e:
+                            logger.debug(f"Error in on_playback_complete: {e}")
 
                     self._active_playing_item = None
 

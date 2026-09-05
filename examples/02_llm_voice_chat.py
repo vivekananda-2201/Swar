@@ -33,6 +33,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from examples.llm_client import LLMClient
+from voice_pipeline.benchmark import BenchmarkLogger
 from voice_pipeline.config import PipelineConfig
 from voice_pipeline.pipeline import VoicePipeline
 
@@ -47,7 +48,7 @@ DEFAULT_SYSTEM_PROMPT = (
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Quick LLM Voice Chat Tester (OpenAI-compatible / llama.cpp / vLLM / Ollama)"
+        description="Quick LLM Voice Chat Tester & Live Benchmark Logger (OpenAI-compatible / llama.cpp / vLLM / Ollama)"
     )
     parser.add_argument(
         "--url",
@@ -64,8 +65,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="default",
-        help="Model name (default: 'default')",
+        default="Qwen3.5-4B",
+        help="Model name (default: 'Qwen3.5-4B')",
     )
     parser.add_argument(
         "--system-prompt",
@@ -89,6 +90,18 @@ def main():
         action="store_true",
         help="Allow thinking/reasoning models to output chain of thought (default: disabled)",
     )
+    parser.add_argument(
+        "--benchmark-dir",
+        type=str,
+        default="benchmarks",
+        help="Folder to store session JSONL and latest_summary.json (default: benchmarks)",
+    )
+    parser.add_argument(
+        "--expected-tok-s",
+        type=float,
+        default=50.0,
+        help="Expected LLM generation speed in tokens/sec (default: 50.0 for Qwen3.5-4B)",
+    )
     args = parser.parse_args()
 
     # Load voice pipeline configuration
@@ -100,17 +113,24 @@ def main():
     wake_status = f"Enabled [{triggers_str}]" if config.wake_word.enabled else "Disabled (Continuous)"
     thinking_status = "Enabled" if args.enable_thinking else "Disabled (Fast Voice)"
 
+    # Initialize Benchmark Logger
+    benchmark = BenchmarkLogger(
+        output_dir=args.benchmark_dir,
+        model_name=args.model,
+        expected_tok_s=args.expected_tok_s,
+    )
+
+    hw = benchmark.hardware_info
     console.print(
         Panel.fit(
-            f"[bold cyan]Quick LLM Voice Chat Tester[/bold cyan]\n"
-            f"[dim]• Endpoint: {args.url}[/dim]\n"
-            f"[dim]• Model: {args.model}[/dim]\n"
-            f"[dim]• System Prompt: {args.system_prompt[:60]}...[/dim]\n"
-            f"[dim]• Voice: {config.tts.voice} (speed: {config.tts.speed}x)[/dim]\n"
-            f"[dim]• Barge-in: {'Enabled' if config.general.allow_barge_in else 'Disabled'}[/dim]\n"
-            f"[dim]• Wake Mode: {wake_status}[/dim]\n"
-            f"[dim]• Thinking: {thinking_status}[/dim]\n"
-            f"[dim]Press Ctrl+C to exit.[/dim]"
+            f"[bold cyan]Quick LLM Voice Chat Tester & Live Benchmark Logger[/bold cyan]\n"
+            f"[dim]• Machine:[/dim] {hw.get('machine')} ({hw.get('cpu')})\n"
+            f"[dim]• GPU / Driver:[/dim] {hw.get('gpu')} ({hw.get('nvidia_driver')}) | [dim]RAM:[/dim] {hw.get('ram_gb')} GB\n"
+            f"[dim]• Endpoint:[/dim] {args.url} | [dim]Model:[/dim] {args.model} (~{args.expected_tok_s:.0f} tok/s)\n"
+            f"[dim]• Benchmark Output:[/dim] [bold yellow]{benchmark.session_file}[/bold yellow]\n"
+            f"[dim]• Voice:[/dim] {config.tts.voice} (speed: {config.tts.speed}x) | [dim]Barge-in:[/dim] {'Enabled' if config.general.allow_barge_in else 'Disabled'}\n"
+            f"[dim]• Wake Mode:[/dim] {wake_status} | [dim]Thinking:[/dim] {thinking_status}\n"
+            f"[dim]Press Ctrl+C to stop and display the benchmark summary table.[/dim]"
         )
     )
 
@@ -123,15 +143,17 @@ def main():
         disable_thinking=not args.enable_thinking,
     )
 
-    # 2. Wire Voice Callbacks
+    # 2. Wire Voice Callbacks & Benchmark Observers
     def on_partial(live_text: str):
         sys.stdout.write(f"\r\033[K[Speaking]: {live_text}")
         sys.stdout.flush()
 
     def on_final(user_transcript: str):
         sys.stdout.write("\r\033[K")
-        console.print(f"\n[bold yellow]You:[/bold yellow] {user_transcript}")
+        turn_id = pipeline.active_turn_id
+        benchmark.start_turn(turn_id, user_transcript)
 
+        console.print(f"\n[bold yellow]You:[/bold yellow] {user_transcript}")
         console.print("[cyan]Assistant generating...[/cyan]")
         try:
             # Stream sentence by sentence directly to Kokoro TTS
@@ -144,10 +166,29 @@ def main():
                 pipeline.speak_text(sentence)
         except Exception as e:
             console.print(f"[bold red]LLM Error:[/bold red] {e}")
+        finally:
+            # Record LLM generation metrics (TTFT, tokens/sec, full reply)
+            benchmark.record_llm_metrics(turn_id, llm.last_metrics)
+
+            # Wait for playback to complete or interruption to occur
+            while pipeline.tts_pipeline.is_speaking and not pipeline.is_interrupted:
+                time.sleep(0.02)
+
+            # Finalize turn metrics, persist to JSONL, and print developer card
+            turn_data = benchmark.finish_turn(turn_id)
+            if turn_data:
+                benchmark.print_turn_card(turn_data, console)
 
     def on_interrupted():
         sys.stdout.write("\r\033[K")
-        console.print("[red][Interrupted: User started speaking][/red]")
+        console.print("[red][Interrupted: User started speaking (~21ms cutoff)][/red]")
+        benchmark.record_interruption(pipeline.active_turn_id)
+
+    def on_chunk_synthesized(turn_id: int, chunk_id: int, text: str, gen_duration: float, duration_s: float):
+        benchmark.record_tts_chunk(turn_id, chunk_id, text, gen_duration, duration_s)
+
+    def on_playback_start(turn_id: int, chunk_id: int):
+        benchmark.record_playback_start(turn_id, chunk_id)
 
     def on_wake(phrase: str, remainder: str, timeout: float):
         console.print(f"\n[bold green]⚡ Wake phrase detected ('{phrase}')! Active exchange for {timeout:.0f}s...[/bold green]")
@@ -163,14 +204,17 @@ def main():
         on_interrupted=on_interrupted,
         on_wake=on_wake,
         on_sleep=on_sleep,
+        on_chunk_synthesized=on_chunk_synthesized,
+        on_playback_start=on_playback_start,
     )
 
     pipeline.start()
     console.print("[green]Ready! Speak into your microphone...[/green]\n")
 
     def _sig_handler(sig, frame):
-        console.print("\n[yellow]Stopping tester...[/yellow]")
+        console.print("\n[yellow]Stopping voice chat session...[/yellow]")
         pipeline.stop()
+        benchmark.print_session_summary(console)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _sig_handler)
@@ -180,7 +224,9 @@ def main():
             time.sleep(0.5)
     except KeyboardInterrupt:
         pipeline.stop()
+        benchmark.print_session_summary(console)
 
 
 if __name__ == "__main__":
     main()
+

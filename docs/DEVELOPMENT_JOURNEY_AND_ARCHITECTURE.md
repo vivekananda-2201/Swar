@@ -76,7 +76,7 @@ In contrast, **NVIDIA Parakeet TDT** (Token-and-Duration Transducer) is a hybrid
 ### Architectural Analysis: Kokoro-82M vs. Autoregressive TTS (XTTS / Bark)
 Modern expressive TTS systems like XTTS-v2 or Bark employ autoregressive speech language models with hundreds of millions of parameters. Generating 24kHz audio with these architectures on CPU typically requires multiple seconds of compute per sentence, often running below real-time speed ($\text{RTF} > 1.0$) without high-end GPU acceleration.
 
-**Kokoro-82M** is based on the StyleTTS2 architecture. It uses a lightweight text encoder, duration predictor, style diffusion/predictor, and a modified HiFi-GAN style generator totaling just 82 million parameters. Because it generates acoustic features non-autoregressively across the whole sentence chunk in parallel, its CPU computational complexity is modest. On our benchmark test setup (8-core Intel CPU), Kokoro-82M achieved an average Real-Time Factor ($\text{RTF}$) of approximately **$0.22 - 0.28$**, synthesizing 2.5 seconds of clean 24kHz speech in **~210ms to ~245ms**.
+**Kokoro-82M** is based on the StyleTTS2 architecture. It uses a lightweight text encoder, duration predictor, style diffusion/predictor, and a modified HiFi-GAN style generator totaling just 82 million parameters. Because it generates acoustic features non-autoregressively across the whole sentence chunk in parallel, its CPU computational complexity is modest compared to autoregressive architectures. Real-time factor ($\text{RTF}$) and synthesis throughput on the CPU are measured dynamically during live conversational sessions.
 
 ---
 
@@ -488,55 +488,36 @@ To achieve real-time streaming on CPU without excessive thermal throttling:
 
 ---
 
-### Empirical Benchmark Methodology & Setup
+### Automated Empirical Benchmarking Harness
 
-To provide reproducible, defensible metrics rather than arbitrary estimates, all measurements were conducted under the following controlled environment:
+To avoid relying on speculative or academic sound-engineer benchmarks, Swar implements an automated, developer-focused benchmark harness directly into `examples/02_llm_voice_chat.py`. Empirical turn-by-turn metrics are logged during actual interactive use and saved into structured formats:
 
-#### Hardware Configuration
-- **Machine**: ASUS TUF Gaming F16
-- **CPU**: Intel(R) Core(TM) 5 210H (8 physical cores: 4 Performance cores up to 4.80GHz + 4 Efficient cores up to 3.60GHz, 12 logical threads, 12MB Smart Cache)
+- **Per-Turn Traces**: `benchmarks/session_<timestamp>.jsonl`
+- **Aggregate Summary**: `benchmarks/latest_summary.json`
+
+#### Developer Metrics Collected During Live Use
+1. **Time-to-First-Audio (TTFA)**: Total elapsed wall-clock latency from the moment the user finishes speaking (silence detected by VAD) to the exact instant the sound card begins playing the assistant's synthesized voice.
+2. **LLM Time-to-First-Token (TTFT)**: High-resolution timestamp from user prompt arrival to the first token delta yielded by the model.
+3. **LLM Time-to-First-Sentence (TTFS)**: Elapsed duration until Sentence 1 boundary is detected and dispatched to TTS.
+4. **LLM Generation Speed**: Live generation throughput in tokens per second (calibrated with `Qwen3.5 4B` @ ~50 tokens/sec).
+5. **Kokoro TTS Sentence 1 Synthesis Latency & RTF**: Time required to synthesize Chunk 1 and its effective speedup factor relative to audio length.
+6. **Barge-In Interruption Cutoff**: Bounded ALSA audio block cutoff window (~21.3ms across 512-sample hardware slices).
+
+#### Host Hardware & Software Profile
+- **Machine**: ASUS TUF Gaming F16 (FX607VUR_FX677VU)
+- **CPU**: Intel(R) Core(TM) 5 210H (8 Cores: 4 Performance-Cores up to 4.8GHz + 4 Efficient-Cores up to 3.6GHz, 12 Threads)
 - **RAM**: 16 GB DDR5
-- **GPU**: NVIDIA GeForce RTX 4050 Laptop GPU (6GB GDDR6 VRAM, Driver 610.57.04)
-- **Audio Interface**: Realtek Audio via PortAudio / ALSA (`blocksize=512`, `channels=1`, `samplerate=16000` capture, `24000` playback)
+- **GPU**: NVIDIA GeForce RTX 4050 Laptop GPU (6 GB GDDR6 VRAM, Driver 610.57.04)
+- **Audio Device**: Realtek Audio via PortAudio / ALSA (`blocksize=512`, `16kHz` input, `24kHz` output)
+- **Operating System**: Arch Linux (Kernel 7.1.9 x86_64)
+- **Models**:
+  - **VAD**: Silero VAD v5 (ONNX Runtime, CPU)
+  - **STT**: NVIDIA Parakeet TDT 0.6B v3 (`nano-parakeet`, CPU / GPU)
+  - **TTS**: Kokoro-82M (CPU Native)
+  - **LLM**: Qwen3.5 4B (~50 tokens/sec)
 
-#### Software Configuration
-- **Operating System**: Arch Linux (Kernel 7.1.9-arch1-2 x86_64)
-- **Python Runtime**: CPython 3.11+
-- **Inference Runtimes**:
-  - PyTorch 2.4.0 (CPU backend with OpenMP, `torch.set_num_threads(8)`)
-  - ONNX Runtime 1.19.2 (CPUExecutionProvider)
-- **Model Checkpoints**:
-  - **VAD**: `snakers4/silero-vad` v5 (ONNX FP32, 512-sample frame size)
-  - **STT**: `nvidia/parakeet-tdt-0.6b-v3` via `nano-parakeet` (PyTorch FP32 on CPU, FP16 on GPU)
-  - **TTS**: `hexgrad/Kokoro-82M` (PyTorch FP32 on CPU, FP16 on GPU)
-  - **LLM**: Local `vLLM` 0.6.1 serving `Qwen/Qwen2.5-7B-Instruct-AWQ` (temperature=0.7, max_tokens=128)
+*(Note: Live benchmark figures will be populated here directly from empirical session logs after real-world user testing on this machine.)*
 
-#### Measurement Protocol
-- **Sample Size**: $N = 10$ warm runs per measurement.
-- **Warmup**: Initial model load and PyTorch JIT tracing passes were executed and discarded before recording.
-- **Metrics Reported**: Both Median ($p_{50}$) and 95th Percentile ($p_{95}$) wall-clock durations.
-- **Audio Inputs**:
-  - STT: Fixed 3.0-second clean speech audio sample (16kHz 16-bit mono PCM).
-  - TTS: Fixed 15-word conversational sentence (*"Hello! I am Swar, a fully local real-time conversational audio runtime running on your machine."*) generating ~2.5 seconds of 24kHz audio.
-- **TTFA Definition**: Time elapsed from the end of user speech (after the 800ms silence threshold is reached) until the first 512-sample audio chunk of Sentence 1 is written to the sound card stream. Audio device startup latency is excluded.
-
----
-
-### Benchmark Results
-
-| Runtime Stage | CPU Median ($p_{50}$) | CPU 95th% ($p_{95}$) | GPU Median ($p_{50}$) | GPU 95th% ($p_{95}$) | Measurement Scope |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **VAD Frame Inference** | **4.6 ms** | 5.8 ms | 1.8 ms | 2.4 ms | Single 32ms (512-sample) audio frame |
-| **STT Interim Step** | **58 ms** | 74 ms | 16 ms | 22 ms | 500ms audio increment while speaking |
-| **STT Final Pass** (3.0s audio) | **182 ms** | 215 ms | 38 ms | 49 ms | Complete turn transcription pass |
-| **LLM Time-to-First-Chunk** | **145 ms** | 190 ms | 28 ms | 38 ms | First full sentence yielded by LLM |
-| **Kokoro TTS Sentence 1** | **210 ms** | 245 ms | 42 ms | 56 ms | Synthesizing 15 words (~2.5s audio) |
-| **Barge-In Cancellation** | **21.3 ms** | 22.1 ms | 21.3 ms | 22.1 ms | Hardware audio block cutoff window |
-| **Total Turnaround (TTFA)** | **~540 ms** | **~670 ms** | **~125 ms** | **~165 ms** | End of speech to first speaker audio |
-
-#### Real-Time Factor (RTF) Breakdown for Kokoro-82M on CPU
-$$\text{RTF} = \frac{\text{Synthesis Wall-Clock Time}}{\text{Generated Audio Duration}} = \frac{0.210\text{ s}}{2.500\text{ s}} \approx 0.084 \text{ (batch active segment)}$$
-When accounting for sentence chunking, phonemization, and token preparation overhead, the effective full-pipeline RTF on an 8-core CPU sits between **$0.22$ and $0.28$**, corresponding to **$3.5\times$ to $4.5\times$ real-time throughput**.
 
 ---
 

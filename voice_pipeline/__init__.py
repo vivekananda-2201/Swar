@@ -41,6 +41,7 @@ from voice_pipeline.wake_word import (
     WakeState,
 )
 from voice_pipeline.pipeline import VoicePipeline
+from voice_pipeline.benchmark import BenchmarkLogger
 
 __all__ = [
     "SileroVAD",
@@ -65,4 +66,5 @@ __all__ = [
     "WakeTriggerConfig",
     "WakeWordEngine",
     "WakeState",
+    "BenchmarkLogger",
 ]

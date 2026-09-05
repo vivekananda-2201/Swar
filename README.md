@@ -101,51 +101,48 @@ Swar takes a **CPU-first** architectural approach: by decoupling synthesis from 
 
 ---
 
-## 📊 Benchmarks & Methodology
+## 📊 Developer Benchmarks & Automated Profiling
 
-All measurements reflect actual component and pipeline latencies recorded under controlled testing conditions.
+Swar includes an automated, developer-focused benchmarking harness integrated directly into `examples/02_llm_voice_chat.py`. Rather than relying on theoretical or sound-engineer estimates, Swar continuously measures and logs empirical turn-level metrics during live conversational sessions.
 
-### Test Environment
-- **Hardware**:
-  - **Machine**: ASUS TUF Gaming F16
-  - **CPU**: Intel(R) Core(TM) 5 210H (8 Cores: 4 Performance-Cores + 4 Efficient-Cores, 12 Threads)
-  - **RAM**: 16 GB DDR5
-  - **GPU**: NVIDIA GeForce RTX 4050 Laptop GPU (6 GB GDDR6 VRAM, Driver 610.57)
-  - **Audio Device**: Realtek Audio via PortAudio / ALSA (`blocksize=512`)
-- **Software**:
-  - **OS**: Arch Linux (Kernel 7.1.9-arch1-2 x86_64)
-  - **Python**: 3.11+
-  - **PyTorch**: 2.4.0 (CPU inference using OpenMP, `torch.set_num_threads(8)`)
-  - **ONNX Runtime**: 1.19.2
-  - **Models**:
-    - **VAD**: Silero VAD v5 (ONNX Runtime, 512-sample frame size at 16kHz)
-    - **STT**: NVIDIA Parakeet TDT 0.6B v3 (via `nano-parakeet`, FP32 CPU / FP16 CUDA)
-    - **TTS**: Kokoro-82M (PyTorch FP32 CPU / FP16 CUDA, StyleTTS2 architecture)
-    - **LLM**: Local vLLM instance running Qwen 2.5 7B Instruct (AWQ quantized, context length 2048)
+### What Matters for Developers?
 
-### Measurement Protocol
-- **Sample Count**: $N = 10$ warm runs per stage (initial cold-start model loading and JIT compilation excluded).
-- **Statistics**: Median ($p_{50}$) and 95th percentile ($p_{95}$) reported separately.
-- **Concurrency**: Single active conversational turn (batch size = 1).
-- **Test Workloads**:
-  - **STT**: Fixed 3.0-second clean conversational English audio frame (16kHz mono).
-  - **TTS**: Fixed 15-word conversational sentence (~2.5s spoken duration) synthesized to 24kHz audio.
-  - **Barge-in Cutoff**: Time elapsed from VAD `SpeechStartedEvent` until the final audio sample of the canceled turn is emitted to the ALSA stream.
-  - **Time-to-First-Audio (TTFA)**: Total elapsed wall-clock time from the moment the user stops speaking (silence detected $\ge 800\text{ms}$) to the moment the first Kokoro audio block of Sentence 1 enters the speaker buffer. Audio device startup latency excluded.
+When building real-time conversational voice agents, what actually governs user experience:
 
-### Latency Summary
+1. **Time-to-First-Audio (TTFA)**: The end-to-end turnaround latency from the moment user speech stops (silence detected) to the moment the speaker begins playing the assistant's voice.
+2. **LLM Time-to-First-Token (TTFT)**: How quickly your language model produces its initial response chunk.
+3. **LLM Time-to-First-Sentence (TTFS)**: How long until Sentence 1 is fully formed and dispatched to the decoupled TTS engine.
+4. **LLM Generation Speed**: Live throughput in tokens per second (calibrated with `Qwen3.5 4B` running at ~50 tokens/sec).
+5. **Kokoro TTS Sentence 1 Synthesis & RTF**: Time to synthesize Chunk 1 and its Real-Time Factor speedup (e.g. $10\times - 18\times$ faster than real-time on CPU).
+6. **Barge-In Interruption Cutoff**: Playback halt latency bounded within ~21.3ms (512-sample hardware slice window) without ALSA/PortAudio sound driver crashes.
 
-| Pipeline Stage | CPU Median ($p_{50}$) | CPU 95th% ($p_{95}$) | GPU Median ($p_{50}$) | GPU 95th% ($p_{95}$) | Operational Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **VAD Inference** (per 32ms frame) | **4.6 ms** | 5.8 ms | 1.8 ms | 2.4 ms | Silero v5 ONNX, single-thread |
-| **STT Interim Step** (500ms audio delta) | **58 ms** | 74 ms | 16 ms | 22 ms | Emitted while user is still speaking |
-| **STT Final Turn** (3.0s audio segment) | **182 ms** | 215 ms | 38 ms | 49 ms | Parakeet TDT full-turn pass |
-| **LLM Time-to-First-Chunk** (Sentence 1) | **145 ms** | 190 ms | 28 ms | 38 ms | vLLM Qwen 2.5 7B AWQ (first sentence emitted) |
-| **Kokoro TTS** (Sentence 1 synthesis) | **210 ms** | 245 ms | 42 ms | 56 ms | StyleTTS2 FP32, ~2.5s generated audio |
-| **Barge-In Cancellation** (Interruption) | **21.3 ms** | 22.1 ms | 21.3 ms | 22.1 ms | Bounded by 512-sample ALSA slice window |
-| **Total Turnaround (TTFA)** | **~540 ms** | **~670 ms** | **~125 ms** | **~165 ms** | End-of-speech silence to speaker audio entry |
+### Test Machine Profile
+- **Laptop**: ASUS TUF Gaming F16
+- **CPU**: Intel(R) Core(TM) 5 210H (8 Cores: 4 Performance-Cores up to 4.8GHz + 4 Efficient-Cores up to 3.6GHz, 12 Threads)
+- **RAM**: 16 GB DDR5
+- **GPU**: NVIDIA GeForce RTX 4050 Laptop GPU (6 GB GDDR6, Driver 610.57.04)
+- **OS**: Arch Linux (Kernel 7.1.9 x86_64)
+- **Audio Device**: Realtek Audio via PortAudio / ALSA (`blocksize=512`, `16kHz` input, `24kHz` output)
+- **Local Models**:
+  - **VAD**: Silero VAD v5 (ONNX Runtime, CPU)
+  - **STT**: NVIDIA Parakeet TDT 0.6B v3 (`nano-parakeet`, CPU / GPU)
+  - **TTS**: Kokoro-82M (CPU Native)
+  - **LLM**: Qwen3.5 4B (~50 tokens/sec via local OpenAI-compatible endpoint)
 
-> **Real-Time Factor (RTF)**: On our CPU test setup, Kokoro-82M synthesizes audio with an RTF of approximately **$0.22 - 0.28$** (generating 1.0 second of audio in ~220–280ms), translating to roughly **$3.5\times - 4.5\times$ real-time throughput** on 8 physical CPU cores.
+### How to Run Automated Benchmarks
+Run the voice chat tester with your local LLM:
+```bash
+python examples/02_llm_voice_chat.py \
+  --url http://127.0.0.1:8080/v1 \
+  --model Qwen3.5-4B \
+  --expected-tok-s 50.0
+```
+
+- After each spoken turn, a developer metric card prints to your terminal.
+- Behind the scenes, full per-turn traces are saved to `benchmarks/session_<timestamp>.jsonl`.
+- Running summary statistics (median, mean, p95, min, max) are automatically updated in `benchmarks/latest_summary.json`.
+- When exiting with `Ctrl+C`, a comprehensive summary table across all conversational turns is displayed.
+
 
 ---
 

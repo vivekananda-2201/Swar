@@ -88,6 +88,9 @@ class VoicePipeline:
         on_interrupted: Optional[Callable[[], None]] = None,
         on_wake: Optional[Callable[[str, str, float], None]] = None,
         on_sleep: Optional[Callable[[], None]] = None,
+        on_chunk_synthesized: Optional[Callable[[int, int, str, float, float], None]] = None,
+        on_playback_start: Optional[Callable[[int, int], None]] = None,
+        on_playback_complete: Optional[Callable[[int, int, bool], None]] = None,
     ):
         # 0. Load base config from file (or defaults) and apply any explicit overrides
         self.config = config or PipelineConfig.load_default_or_file()
@@ -260,6 +263,9 @@ class VoicePipeline:
             max_text_queue_size=self.config.tts.max_text_queue_size,
             max_audio_queue_size=self.config.tts.max_audio_queue_size,
         )
+        self.tts_pipeline.on_chunk_synthesized = on_chunk_synthesized
+        self.tts_pipeline.on_playback_start = on_playback_start
+        self.tts_pipeline.on_playback_complete = on_playback_complete
 
         # Worker threads
         self.threads: list[threading.Thread] = []
