@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "swar"
 version = "0.1.0"
-description = "Swar: High-Performance Real-Time Voice Pipeline (CPU-Native Silero VAD + Parakeet TDT STT + Kokoro TTS)"
+description = "Swar: High-Performance Local Conversational Audio Runtime (CPU-First Silero VAD + Parakeet TDT STT + Kokoro TTS)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
