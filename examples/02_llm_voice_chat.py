@@ -105,10 +105,18 @@ def main():
         default=50.0,
         help="Expected LLM generation speed in tokens/sec (default: 50.0 for Qwen3.5-4B)",
     )
+    parser.add_argument(
+        "--cpu-threads",
+        type=int,
+        default=None,
+        help="PyTorch intra-op CPU threads (default: from config.yaml, 4 recommended for P-cores)",
+    )
     args = parser.parse_args()
 
     # Load voice pipeline configuration
     config = PipelineConfig.load_default_or_file(args.config)
+    if args.cpu_threads is not None:
+        config.general.cpu_threads = args.cpu_threads
     if args.wake:
         config.wake_word.enabled = True
 
@@ -124,11 +132,13 @@ def main():
     )
 
     hw = benchmark.hardware_info
+    thread_info = f"{config.general.cpu_threads} P-core threads" if config.general.device == "cpu" else "GPU"
     console.print(
         Panel.fit(
             f"[bold cyan]Quick LLM Voice Chat Tester & Live Benchmark Logger[/bold cyan]\n"
             f"[dim]• Machine:[/dim] {hw.get('machine')} ({hw.get('cpu')})\n"
             f"[dim]• GPU / Driver:[/dim] {hw.get('gpu')} ({hw.get('nvidia_driver')}) | [dim]RAM:[/dim] {hw.get('ram_gb')} GB\n"
+            f"[dim]• Compute / Threads:[/dim] {config.general.device.upper()} ({thread_info})\n"
             f"[dim]• Endpoint:[/dim] {args.url} | [dim]Model:[/dim] {args.model} (~{args.expected_tok_s:.0f} tok/s)\n"
             f"[dim]• Benchmark Output:[/dim] [bold yellow]{benchmark.session_file}[/bold yellow]\n"
             f"[dim]• Voice:[/dim] {config.tts.voice} (speed: {config.tts.speed}x) | [dim]Barge-in:[/dim] {'Enabled' if config.general.allow_barge_in else 'Disabled'}\n"

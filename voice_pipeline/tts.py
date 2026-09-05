@@ -14,6 +14,7 @@ from typing import Generator, Iterator, List, Optional
 
 import numpy as np
 import sounddevice as sd
+import torch
 
 from voice_pipeline.speak_out_parser import (
     ChunkingConfig,
@@ -46,14 +47,22 @@ class KokoroTTS:
         lang_code: str = "a",
         speed: float = 1.0,
         device: str = "cpu",
+        cpu_threads: int = 4,
     ):
         self.voice = voice
         self.lang_code = lang_code
         self.speed = speed
         self.device = device
+        self.cpu_threads = cpu_threads
         self.sample_rate = 24000
 
-        logger.info(f"Loading Kokoro TTS engine (voice={voice}, lang={lang_code}) on {device}...")
+        if self.device == "cpu" and self.cpu_threads and self.cpu_threads > 0:
+            torch.set_num_threads(self.cpu_threads)
+
+        logger.info(
+            f"Loading Kokoro TTS engine (voice={voice}, lang={lang_code}, "
+            f"cpu_threads={self.cpu_threads if self.device == 'cpu' else 'N/A'}) on {device}..."
+        )
         import kokoro
 
         self.pipeline = kokoro.KPipeline(
@@ -79,22 +88,23 @@ class KokoroTTS:
         audio_parts: List[np.ndarray] = []
 
         try:
-            for gs, ps, audio in self.pipeline(text.strip(), voice=v, speed=s):
-                if cancel_event is not None and cancel_event.is_set():
-                    logger.debug("Kokoro synthesis cancelled.")
-                    return None
+            with torch.inference_mode():
+                for gs, ps, audio in self.pipeline(text.strip(), voice=v, speed=s):
+                    if cancel_event is not None and cancel_event.is_set():
+                        logger.debug("Kokoro synthesis cancelled.")
+                        return None
 
-                if audio is None:
-                    continue
+                    if audio is None:
+                        continue
 
-                if hasattr(audio, "cpu"):
-                    audio_np = audio.cpu().numpy()
-                elif isinstance(audio, np.ndarray):
-                    audio_np = audio
-                else:
-                    audio_np = np.array(audio, dtype=np.float32)
+                    if hasattr(audio, "cpu"):
+                        audio_np = audio.cpu().numpy()
+                    elif isinstance(audio, np.ndarray):
+                        audio_np = audio
+                    else:
+                        audio_np = np.array(audio, dtype=np.float32)
 
-                audio_parts.append(audio_np.astype(np.float32))
+                    audio_parts.append(audio_np.astype(np.float32))
 
             if audio_parts:
                 return np.concatenate(audio_parts)
@@ -136,8 +146,9 @@ class TTSPipeline:
         sample_rate: int = 24000,
         max_text_queue_size: int = 100,
         max_audio_queue_size: int = 50,
+        cpu_threads: int = 4,
     ):
-        self.tts = tts_engine or KokoroTTS(voice=voice, device="cpu")
+        self.tts = tts_engine or KokoroTTS(voice=voice, device="cpu", cpu_threads=cpu_threads)
         self.chunking_config = chunking_config or ChunkingConfig()
         self.output_device = output_device
         self.sample_rate = sample_rate

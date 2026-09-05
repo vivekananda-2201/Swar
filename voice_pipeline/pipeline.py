@@ -74,6 +74,7 @@ class VoicePipeline:
         chunking_config: Optional[ChunkingConfig] = None,
         llm_client: Optional[LLMClient] = None,
         device: Optional[str] = None,
+        cpu_threads: Optional[int] = None,
         input_device: Optional[int | str] = None,
         output_device: Optional[int | str] = None,
         verbose: Optional[bool] = None,
@@ -97,6 +98,8 @@ class VoicePipeline:
 
         if device is not None:
             self.config.general.device = device
+        if cpu_threads is not None:
+            self.config.general.cpu_threads = cpu_threads
         if verbose is not None:
             self.config.general.verbose = verbose
         if allow_barge_in is not None:
@@ -134,11 +137,17 @@ class VoicePipeline:
             self.config.chunking = chunking_config
 
         self.device = self.config.general.device
+        self.cpu_threads = self.config.general.cpu_threads
         self.verbose = self.config.general.verbose
         self.allow_barge_in = self.config.general.allow_barge_in
         self.input_device = self.config.general.input_device
         self.output_device = self.config.general.output_device
         self.enable_live_transcription = self.config.stt.enable_live_transcription
+
+        # Optimize PyTorch CPU intra-op parallelism if on CPU
+        if self.device == "cpu" and self.cpu_threads and self.cpu_threads > 0:
+            import torch
+            torch.set_num_threads(self.cpu_threads)
 
         # Callbacks
         self.on_speech_started = on_speech_started
@@ -253,6 +262,7 @@ class VoicePipeline:
             lang_code=self.config.tts.lang_code,
             speed=self.config.tts.speed,
             device=self.device,
+            cpu_threads=self.cpu_threads,
         )
         self.tts_pipeline = TTSPipeline(
             tts_engine=self.tts_engine,

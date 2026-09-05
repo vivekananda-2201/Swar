@@ -10,6 +10,11 @@ general:
   # Hardware compute device: "cpu" or "cuda"
   device: "cpu"
 
+  # PyTorch intra-op CPU threads.
+  # Set to 4 to match physical Performance Cores on hybrid CPUs (e.g. Intel Core 5 210H),
+  # avoiding slow OpenMP synchronization stalls across lower-clocked E-cores.
+  cpu_threads: 4
+
   # Headless mode:
   # If false, the pipeline prints 0 lines to terminal (safe for your UI / dashboard)
   # If true, the pipeline prints model loading and status messages
@@ -74,7 +79,7 @@ tts:
   voice: "af_bella"
 
   # Speech speed multiplier (e.g., 1.0 = normal, 1.15 = faster, 0.9 = slower)
-  speed: 1.0
+  speed: 1.18
 
   # Language code ('a' = American English, 'b' = British English)
   lang_code: "a"
@@ -97,7 +102,7 @@ chunking:
   # - "progressive": Fast initial sentence (low TTFT), followed by larger natural sentences
   # - "adaptive": Dynamically adjusts chunk size based on remaining seconds in audio buffer
   # - "single": Synthesize sentence-by-sentence strictly 1 at a time
-  strategy: "adaptive"
+  strategy: "progressive"
 
   # Progressive stages: list of [max_chunks, sentences_per_chunk]
   # Example below:

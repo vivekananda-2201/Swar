@@ -29,6 +29,7 @@ from voice_pipeline.wake_word import WakeTriggerConfig, WakeWordConfig
 class GeneralConfig:
     """General runtime and hardware configuration."""
     device: str = "cpu"                  # Compute device: "cpu" or "cuda"
+    cpu_threads: int = 4                 # PyTorch intra-op CPU threads (tuned for physical P-cores, avoiding E-core stalls)
     verbose: bool = False                # If False, pipeline is completely silent (no terminal prints)
     allow_barge_in: bool = True          # If True, user speech interrupts playback. If False, assistant finishes speaking.
     input_device: Optional[int | str] = None   # Audio input device ID or name (None = default)
