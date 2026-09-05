@@ -40,7 +40,7 @@ vad:
 
   # Minimum silence duration in milliseconds before concluding the user has finished speaking.
   # 800ms is conservative for noisy rooms; 400ms delivers snappy sub-second turnarounds in clean environments.
-  min_silence_ms: 400
+  min_silence_ms: 390
 
   # Minimum speech duration in milliseconds to be recognized as a valid utterance
   min_speech_ms: 384
@@ -154,6 +154,6 @@ wake_word:
     - phrase: "jarvis"
       timeout: 15.0
     - phrase: "relic"
-      timeout: 10.0
+      timeout: 25.0
     - phrase: "take a note"
       timeout: 30.0

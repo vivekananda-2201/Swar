@@ -183,7 +183,7 @@ class VoicePipeline:
 
         self.wake_engine = WakeWordEngine(
             config=self.config.wake_word,
-            is_busy_callback=lambda: getattr(self, "tts_pipeline", None) is not None and self.tts_pipeline.is_speaking or self._is_generating_response,
+            is_busy_callback=self._is_pipeline_busy,
             on_wake=self._on_engine_wake,
             on_sleep=self._on_engine_sleep,
             on_log=self._log,
@@ -282,8 +282,16 @@ class VoicePipeline:
         self.mic_stream: Optional[sd.RawInputStream] = None
         self.is_running = False
         self._is_generating_response = False
+        self._is_user_speaking = False
         self._active_turn_id = 0
         self._active_turn_interrupted = threading.Event()
+
+    def _is_pipeline_busy(self) -> bool:
+        """True if assistant is generating, TTS is busy, or user is speaking."""
+        tts_busy = getattr(self, "tts_pipeline", None) is not None and self.tts_pipeline.is_busy
+        generating = getattr(self, "_is_generating_response", False)
+        user_speaking = getattr(self, "_is_user_speaking", False)
+        return bool(tts_busy or generating or user_speaking)
 
     def _on_engine_wake(self, phrase: str, remainder: str, timeout: float) -> None:
         if self.on_wake:
@@ -421,11 +429,17 @@ class VoicePipeline:
 
     def _handle_interruption(self) -> None:
         """Cancels ongoing TTS playback and generation on speech detection or Parakeet transcription."""
-        was_interrupted = self._active_turn_interrupted.is_set()
+        if self._active_turn_interrupted.is_set():
+            return
+
         self._active_turn_interrupted.set()
         interrupted_turn = self._active_turn_id
         self.tts_pipeline.interrupt()
         self._is_generating_response = False
+
+        # In wake mode, user interruption represents active conversational engagement
+        if self.wake_mode:
+            self.wake_engine.wake(phrase="interruption")
 
         # Clear previous turn speculative prefixes only, preserving current interruption audio in VAD buffer
         if hasattr(self, "vad_handler") and self.vad_handler is not None:
@@ -434,20 +448,23 @@ class VoicePipeline:
             self.vad_handler._pending_short_segment = None
             self.vad_handler._pending_reopen_candidate = None
 
-        if not was_interrupted:
-            if self.on_interrupted:
-                try:
-                    self.on_interrupted(interrupted_turn)
-                except TypeError:
-                    self.on_interrupted()
-            if self.verbose:
-                console.print("\n[red][Barge-in: speech interrupted][/red]")
+        if self.on_interrupted:
+            try:
+                self.on_interrupted(interrupted_turn)
+            except TypeError:
+                self.on_interrupted()
+        if self.verbose:
+            console.print("\n[red][Barge-in: speech interrupted][/red]")
 
     def _start_user_turn(self, text: str) -> None:
         """Starts a new conversational turn and dispatches callback asynchronously."""
         self._active_turn_id += 1
         self._active_turn_interrupted.clear()
         turn_id = self._active_turn_id
+
+        # Synchronize TTS pipeline turn epoch and clear cancellation
+        if hasattr(self, "tts_pipeline") and self.tts_pipeline is not None:
+            self.tts_pipeline.reset_for_turn(turn_id)
 
         # Ensure fresh turn in VAD and STT - clear any speculative prefix
         if hasattr(self, "vad_handler") and self.vad_handler is not None:
@@ -466,13 +483,13 @@ class VoicePipeline:
         if self.on_final_transcript:
             threading.Thread(
                 target=self._run_user_turn_callback,
-                args=(text, turn_id),
+                args=(text,),
                 daemon=True,
                 name=f"TurnWorker-{turn_id}",
             ).start()
 
-    def _run_user_turn_callback(self, text: str, turn_id: int) -> None:
-        _turn_local.turn_id = turn_id
+    def _run_user_turn_callback(self, text: str) -> None:
+        _turn_local.turn_id = self._active_turn_id
         try:
             self._is_generating_response = True
             self.on_final_transcript(text)
@@ -494,6 +511,7 @@ class VoicePipeline:
 
             # 1. Speech Started Event (VAD detected speech)
             if isinstance(event, SpeechStartedEvent):
+                self._is_user_speaking = True
                 if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
                     self._handle_interruption()
                 self.wake_engine.activity()
@@ -502,6 +520,7 @@ class VoicePipeline:
 
             # 2. Interim / Progressive Transcription Event (Parakeet started transcription while user speaks)
             elif isinstance(event, PartialTranscriptionEvent):
+                self._is_user_speaking = True
                 if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
                     self._handle_interruption()
                 delta = getattr(event, "delta", "").strip()
@@ -519,10 +538,15 @@ class VoicePipeline:
                         sys.stdout.write(f"\r\033[K[Realtime]: {delta}")
                         sys.stdout.flush()
 
-            # 3. Final Transcription Completed Event (turn finished)
+            # 3. Speech Stopped Event (VAD detected silence)
+            elif isinstance(event, SpeechStoppedEvent):
+                self._is_user_speaking = False
+                self.wake_engine.activity()
+
+            # 4. Final Transcription Completed Event (turn finished)
             elif isinstance(event, TranscriptionCompletedEvent):
-                if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
-                    self._handle_interruption()
+                self._is_user_speaking = False
+                self.wake_engine.activity()
 
                 # Commit turn in speculative tracker and clear prefix
                 turn_id = getattr(event, "turn_id", None)
@@ -543,7 +567,7 @@ class VoicePipeline:
                         if should_forward and text_to_forward:
                             self._start_user_turn(text_to_forward)
                         elif not should_forward and self.wake_engine.is_awake:
-                            # Woke up, but user only said the wake word without follow-up command
+                            # User only said the wake word to wake up or interrupt
                             if self.verbose:
                                 console.print(f"[bold green]⚡ Wake phrase detected ('{transcript}')! Listening for command...[/bold green]")
                         else:

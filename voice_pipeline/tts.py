@@ -298,6 +298,16 @@ class TTSPipeline:
             self.sentence_chunker.reset()
         logger.debug(f"TTS Pipeline interrupted. Advanced to turn epoch #{self._current_turn_id}.")
 
+    def reset_for_turn(self, turn_id: int) -> None:
+        """
+        Synchronizes TTS pipeline epoch with a newly started conversational turn.
+        Clears cancellation so upcoming audio is guaranteed to be processed.
+        """
+        with self._lock:
+            self._current_turn_id = max(self._current_turn_id, turn_id)
+            self.cancel_current_turn_event.clear()
+        logger.debug(f"TTS Pipeline synchronized for turn #{turn_id} (epoch: {self._current_turn_id}).")
+
     def feed_text(self, text: str, turn_id: Optional[int] = None) -> None:
         """
         Feeds any arbitrary text directly to the TTS pipeline.

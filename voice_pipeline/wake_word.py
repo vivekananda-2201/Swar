@@ -304,21 +304,24 @@ class WakeWordEngine:
         with self._lock:
             current_state = self._state
 
-        if current_state == WakeState.STANDBY:
-            match_result = self.match_trigger(raw)
-            if match_result is None:
-                logger.debug(f"[WakeWord] Standby ignoring non-wake speech: {raw}")
-                return False, ""
-
+        # 1. First check if speech matches any configured wake trigger (e.g. "hey assistant", "jarvis", "relic")
+        match_result = self.match_trigger(raw)
+        if match_result is not None:
             trigger, remainder = match_result
+            # Wakes up (or refreshes active state) with this trigger's configured timeout
             self.wake(phrase=trigger.phrase, timeout=trigger.timeout)
-
             if remainder:
                 return True, remainder
             else:
+                # User only spoke the wake phrase (e.g. "Jarvis" or "Relic") to wake/interrupt
                 return False, ""
 
+        # 2. If no wake trigger was matched:
+        if current_state == WakeState.STANDBY:
+            logger.debug(f"[WakeWord] Standby ignoring non-wake speech: {raw}")
+            return False, ""
         else:
+            # Active conversational exchange: follow-up turns do not require repeating wake words
             self.activity()
             return True, raw
 
