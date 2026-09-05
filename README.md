@@ -117,17 +117,29 @@ When building real-time conversational voice agents, what actually governs user 
 6. **Barge-In Interruption Cutoff**: Playback halt latency bounded within ~21.3ms (512-sample hardware slice window) without ALSA/PortAudio sound driver crashes.
 
 ### Test Machine Profile
-- **Laptop**: ASUS TUF Gaming F16
-- **CPU**: Intel(R) Core(TM) 5 210H (8 Cores: 4 Performance-Cores up to 4.8GHz + 4 Efficient-Cores up to 3.6GHz, 12 Threads)
-- **RAM**: 16 GB DDR5
-- **GPU**: NVIDIA GeForce RTX 4050 Laptop GPU (6 GB GDDR6, Driver 610.57.04)
-- **OS**: Arch Linux (Kernel 7.1.9 x86_64)
+- **Laptop**: ASUS TUF Gaming F16 (FX607VUR_FX677VU)
+- **CPU**: Intel(R) Core(TM) 5 210H (4 P-Cores up to 4.8GHz + 4 E-Cores up to 3.6GHz, 12 Threads)
+- **RAM**: 16 GB DDR5 (15.2 GB available)
+- **GPU / Driver**: NVIDIA GeForce RTX 4050 Laptop GPU (Driver 610.57.04) — *voice runtime tested 100% on CPU*
+- **OS**: Arch Linux (Kernel 7.1.9 x86_64, glibc 2.44, Python 3.11.16)
 - **Audio Device**: Realtek Audio via PortAudio / ALSA (`blocksize=512`, `16kHz` input, `24kHz` output)
-- **Local Models**:
-  - **VAD**: Silero VAD v5 (ONNX Runtime, CPU)
-  - **STT**: NVIDIA Parakeet TDT 0.6B v3 (`nano-parakeet`, CPU / GPU)
-  - **TTS**: Kokoro-82M (CPU Native)
-  - **LLM**: Qwen3.5 4B (~50 tokens/sec via local OpenAI-compatible endpoint)
+- **Stack**: Silero VAD v5 (ONNX) + NVIDIA Parakeet TDT 0.6B (CPU) + Kokoro-82M (CPU Native) + Qwen3.5-4B (~40–50 tok/s)
+
+### Empirical Benchmark Results (Live Interactive Session)
+
+Captured live during multi-turn conversational voice interaction across 8 real dialogue turns:
+
+| Metric | Min | Median | Mean | P95 / Max | Unit |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Time-to-First-Audio (TTFA)** | **642.5 ms** | 1,664.3 ms | 1,560.9 ms | 2,425.6 ms | ms |
+| **LLM Time-to-First-Token (TTFT)** | **148.7 ms** | 158.6 ms | 194.1 ms | 445.8 ms | ms |
+| **LLM Time-to-First-Sentence (TTFS)** | **204.5 ms** | 470.6 ms | 449.1 ms | 671.0 ms | ms |
+| **LLM Generation Throughput** | 20.8 | 39.5 | 36.8 | **40.8** | tok/s |
+| **Kokoro Sentence 1 Synthesis (CPU)** | **436.1 ms** | 1,234.9 ms | 1,110.1 ms | 1,822.8 ms | ms |
+| **Kokoro Real-Time Speedup (CPU)** | 2.05× | 3.34× | 3.19× | **3.85×** | Real-time |
+| **Barge-In Interruption Cutoff** | — | — | **21.3 ms** | 21.3 ms | ms |
+
+> 📖 **Deep Dive**: For detailed explanations of CPU thread optimizations, OpenMP barrier elimination, VAD silence tuning, and turn-by-turn logs, see [Architecture & Benchmark Analysis](docs/DEVELOPMENT_JOURNEY_AND_ARCHITECTURE.md#7-cpu-optimization-techniques--rigorous-benchmark-analysis).
 
 ### How to Run Automated Benchmarks
 Run the voice chat tester with your local LLM:

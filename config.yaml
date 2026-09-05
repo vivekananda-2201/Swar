@@ -38,8 +38,9 @@ vad:
   # Speech probability threshold (0.0 to 1.0). Higher = less sensitive to background noise.
   threshold: 0.6
 
-  # Minimum silence duration in milliseconds before concluding the user has finished speaking
-  min_silence_ms: 800
+  # Minimum silence duration in milliseconds before concluding the user has finished speaking.
+  # 800ms is conservative for noisy rooms; 400ms delivers snappy sub-second turnarounds in clean environments.
+  min_silence_ms: 400
 
   # Minimum speech duration in milliseconds to be recognized as a valid utterance
   min_speech_ms: 384
