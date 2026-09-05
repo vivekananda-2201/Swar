@@ -103,9 +103,9 @@ Swar takes a **CPU-first** architectural approach: by decoupling synthesis from 
 
 ## 📊 Developer Benchmarks & Automated Profiling
 
-Swar includes an automated, developer-focused benchmarking harness integrated directly into `examples/02_llm_voice_chat.py`. Rather than relying on theoretical or sound-engineer estimates, Swar continuously measures and logs empirical turn-level metrics during live conversational sessions.
+Swar includes an automated, developer-focused benchmarking harness integrated directly into `examples/02_llm_voice_chat.py`. Rather than relying on theoretical estimates, Swar continuously measures and logs empirical turn-level metrics during live conversational sessions.
 
-### What Matters for Developers?
+### What benchmark shows?
 
 When building real-time conversational voice agents, what actually governs user experience:
 
