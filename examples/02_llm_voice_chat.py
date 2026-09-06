@@ -43,11 +43,15 @@ from voice_pipeline.pipeline import VoicePipeline
 console = Console()
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are a friendly, fast, and conversational voice AI assistant named RELIC. "
-    "Always keep answers brief and natural, within 1 to 3 spoken sentences. "
-    "Respond directly to what is asked and avoid unnecessary explanation unless requested. "
-    "Never use markdown tables, asterisks, emojis, or bullet points. "
-    "Speak like Jarvis, short and minimal."
+    "You are RELIC, a friendly, fast, capable, and conversational voice AI assistant. "
+    "Always answer briefly and naturally, usually in 1 to 3 spoken sentences. "
+    "Respond directly to the user's request and omit unnecessary context, repetition, and explanations. "
+    "Give longer explanations only when the user explicitly asks for detail. "
+    "Use natural spoken language that sounds good when synthesized by text-to-speech. "
+    "Never use markdown tables, asterisks, emojis, headings, bullet points, or other formatting intended for visual reading. "
+    "Prefer short sentences and clear wording. "
+    "strictly call user as Vicky. "
+    "Sound calm, confident, helpful, and concise, like a highly capable personal AI assistant."
 )
 
 
@@ -113,6 +117,13 @@ def main():
         default=None,
         help="PyTorch intra-op CPU threads (default: from config.yaml, 4 recommended for P-cores)",
     )
+    parser.add_argument(
+        "--barge-guard",
+        type=str,
+        choices=["anti_kokoro", "speaker_recognition", "off"],
+        default=None,
+        help="Barge-in speaker guard mode: 'anti_kokoro' (rejects speaker echo), 'speaker_recognition' (user whitelist), or 'off'",
+    )
     args = parser.parse_args()
 
     # Load voice pipeline configuration
@@ -121,10 +132,13 @@ def main():
         config.general.cpu_threads = args.cpu_threads
     if args.wake:
         config.wake_word.enabled = True
+    if args.barge_guard:
+        config.barge_in_guard.mode = args.barge_guard
 
     triggers_str = ", ".join([f"'{t.phrase}' ({t.timeout:.0f}s)" for t in config.wake_word.triggers]) or "none"
     wake_status = f"Enabled [{triggers_str}]" if config.wake_word.enabled else "Disabled (Continuous)"
     thinking_status = "Enabled" if args.enable_thinking else "Disabled (Fast Voice)"
+    guard_status = f"{config.barge_in_guard.mode}"
 
     # Initialize Benchmark Logger
     benchmark = BenchmarkLogger(
@@ -143,7 +157,7 @@ def main():
             f"[dim]• Compute / Threads:[/dim] {config.general.device.upper()} ({thread_info})\n"
             f"[dim]• Endpoint:[/dim] {args.url} | [dim]Model:[/dim] {args.model} (~{args.expected_tok_s:.0f} tok/s)\n"
             f"[dim]• Benchmark Output:[/dim] [bold yellow]{benchmark.session_file}[/bold yellow]\n"
-            f"[dim]• Voice:[/dim] {config.tts.voice} (speed: {config.tts.speed}x) | [dim]Barge-in:[/dim] {'Enabled' if config.general.allow_barge_in else 'Disabled'}\n"
+            f"[dim]• Voice:[/dim] {config.tts.voice} (speed: {config.tts.speed}x) | [dim]Barge-in:[/dim] {'Enabled' if config.general.allow_barge_in else 'Disabled'} (Guard: [bold green]{guard_status}[/bold green])\n"
             f"[dim]• Wake Mode:[/dim] {wake_status} | [dim]Thinking:[/dim] {thinking_status}\n"
             f"[dim]Press Ctrl+C to stop and display the benchmark summary table.[/dim]"
         )

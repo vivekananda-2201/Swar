@@ -68,6 +68,22 @@ class TTSConfig:
 
 
 @dataclass
+class BargeInGuardConfig:
+    """
+    3-Mode Barge-In & Speaker Guard Configuration:
+    - "anti_kokoro": Rejects assistant's own voiceprint from speakers (zero setup needed!)
+    - "speaker_recognition": Only authorized enrolled user voiceprints can talk or barge-in
+    - "off": Raw VAD (earphone mode)
+    """
+    mode: str = "anti_kokoro"            # "anti_kokoro", "speaker_recognition", or "off"
+    voiceprints_dir: str = "~/.cache/swar/voiceprints" # Directory for enrolled user .npy files
+    user_similarity_threshold: float = 0.65            # Min cosine similarity for user match
+    kokoro_similarity_threshold: float = 0.60          # Min cosine similarity to classify as Kokoro echo
+    authorized_speakers: List[str] = field(default_factory=list) # Specific speaker whitelist (empty = all in dir)
+    model_path: Optional[str] = None                   # Custom path to CAM++ ONNX model
+
+
+@dataclass
 class PipelineConfig:
     """Unified master configuration for the entire voice pipeline."""
     general: GeneralConfig = field(default_factory=GeneralConfig)
@@ -76,6 +92,7 @@ class PipelineConfig:
     tts: TTSConfig = field(default_factory=TTSConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
+    barge_in_guard: BargeInGuardConfig = field(default_factory=BargeInGuardConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
@@ -99,6 +116,8 @@ class PipelineConfig:
                 tuple(stage) for stage in chunking_data["progressive_stages"]
             ]
 
+        barge_guard_data = data.get("barge_in_guard", {})
+
         return cls(
             general=GeneralConfig(**general_data),
             vad=VADConfig(**vad_data),
@@ -106,6 +125,7 @@ class PipelineConfig:
             tts=TTSConfig(**tts_data),
             chunking=ChunkingConfig(**chunking_data),
             wake_word=WakeWordConfig.from_dict(wake_word_data),
+            barge_in_guard=BargeInGuardConfig(**barge_guard_data),
         )
 
     @classmethod

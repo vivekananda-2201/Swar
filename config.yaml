@@ -40,7 +40,7 @@ vad:
 
   # Minimum silence duration in milliseconds before concluding the user has finished speaking.
   # 800ms is conservative for noisy rooms; 400ms delivers snappy sub-second turnarounds in clean environments.
-  min_silence_ms: 390
+  min_silence_ms: 256
 
   # Minimum speech duration in milliseconds to be recognized as a valid utterance
   min_speech_ms: 384
@@ -151,9 +151,831 @@ wake_word:
   triggers:
     - phrase: "hey assistant"
       timeout: 20.0
-    - phrase: "jarvis"
-      timeout: 15.0
+
     - phrase: "relic"
       timeout: 25.0
+
     - phrase: "take a note"
       timeout: 30.0
+
+    - phrase: "hey there"
+      timeout: 20.0
+
+    - phrase: "hello there"
+      timeout: 20.0
+
+    - phrase: "hey assistant"
+      timeout: 20.0
+
+    - phrase: "hello assistant"
+      timeout: 20.0
+
+    - phrase: "okay assistant"
+      timeout: 20.0
+
+    - phrase: "listen"
+      timeout: 15.0
+
+    - phrase: "listen up"
+      timeout: 15.0
+
+    - phrase: "can you help me"
+      timeout: 25.0
+
+    - phrase: "i need some help"
+      timeout: 25.0
+
+    - phrase: "i need your help"
+      timeout: 25.0
+
+    - phrase: "can you help"
+      timeout: 25.0
+
+    - phrase: "could you help me"
+      timeout: 25.0
+
+    - phrase: "i have a question"
+      timeout: 25.0
+
+    - phrase: "i want to ask you something"
+      timeout: 25.0
+
+    - phrase: "can i ask you something"
+      timeout: 25.0
+
+    - phrase: "i need to ask you something"
+      timeout: 25.0
+
+    - phrase: "do me a favor"
+      timeout: 25.0
+
+    - phrase: "i need a favor"
+      timeout: 25.0
+
+    - phrase: "take a note"
+      timeout: 30.0
+
+    - phrase: "make a note"
+      timeout: 30.0
+
+    - phrase: "remember this"
+      timeout: 30.0
+
+    - phrase: "write this down"
+      timeout: 30.0
+
+    - phrase: "remind me"
+      timeout: 30.0
+
+    - phrase: "look this up"
+      timeout: 20.0
+
+    - phrase: "search for"
+      timeout: 20.0
+
+    - phrase: "find something"
+      timeout: 20.0
+
+    - phrase: "what do you think"
+      timeout: 20.0
+
+    - phrase: "tell me something"
+      timeout: 20.0
+
+    - phrase: "tell me about this"
+      timeout: 20.0
+
+    - phrase: "what's going on"
+      timeout: 20.0
+
+    - phrase: "what can you do"
+      timeout: 20.0
+
+    - phrase: "are you there"
+      timeout: 20.0
+
+    - phrase: "are you listening"
+      timeout: 20.0
+
+    - phrase: "wake up"
+      timeout: 20.0
+  # ─────────────────────────────────────────────
+  # EXPLANATION / KNOWLEDGE
+  # ─────────────────────────────────────────────
+    - phrase: "explain"
+      timeout: 25.0
+
+    - phrase: "clarify"
+      timeout: 25.0
+
+    - phrase: "elaborate"
+      timeout: 25.0
+
+    - phrase: "describe"
+      timeout: 25.0
+
+    - phrase: "define"
+      timeout: 25.0
+
+    - phrase: "interpret"
+      timeout: 25.0
+
+    - phrase: "translate"
+      timeout: 25.0
+
+    - phrase: "teach"
+      timeout: 30.0
+
+    - phrase: "show me"
+      timeout: 25.0
+
+    - phrase: "tell me"
+      timeout: 25.0
+
+    - phrase: "break it down"
+      timeout: 30.0
+
+    - phrase: "walk me through"
+      timeout: 30.0
+
+    - phrase: "give me an overview"
+      timeout: 30.0
+
+    - phrase: "give me the details"
+      timeout: 30.0
+
+    - phrase: "make it clear"
+      timeout: 25.0
+
+    - phrase: "simplify"
+      timeout: 25.0
+
+    - phrase: "expand"
+      timeout: 25.0
+
+
+    # ─────────────────────────────────────────────
+    # SEARCH / RETRIEVAL / INFORMATION
+    # ─────────────────────────────────────────────
+    - phrase: "search"
+      timeout: 25.0
+
+    - phrase: "look up"
+      timeout: 25.0
+
+    - phrase: "find"
+      timeout: 25.0
+
+    - phrase: "fetch"
+      timeout: 25.0
+
+    - phrase: "retrieve"
+      timeout: 25.0
+
+    - phrase: "check"
+      timeout: 25.0
+
+    - phrase: "verify"
+      timeout: 25.0
+
+    - phrase: "confirm"
+      timeout: 25.0
+
+    - phrase: "look into"
+      timeout: 30.0
+
+    - phrase: "investigate"
+      timeout: 30.0
+
+    - phrase: "research"
+      timeout: 30.0
+
+    - phrase: "dig into"
+      timeout: 30.0
+
+    - phrase: "find out"
+      timeout: 30.0
+
+
+    # ─────────────────────────────────────────────
+    # ANALYSIS / REASONING
+    # ─────────────────────────────────────────────
+    - phrase: "analyze"
+      timeout: 35.0
+
+    - phrase: "analyse"
+      timeout: 35.0
+
+    - phrase: "evaluate"
+      timeout: 30.0
+
+    - phrase: "assess"
+      timeout: 30.0
+
+    - phrase: "inspect"
+      timeout: 30.0
+
+    - phrase: "examine"
+      timeout: 30.0
+
+    - phrase: "review"
+      timeout: 30.0
+
+    - phrase: "audit"
+      timeout: 35.0
+
+    - phrase: "compare"
+      timeout: 30.0
+
+    - phrase: "contrast"
+      timeout: 30.0
+
+    - phrase: "rank"
+      timeout: 30.0
+
+    - phrase: "estimate"
+      timeout: 25.0
+
+    - phrase: "calculate"
+      timeout: 25.0
+
+    - phrase: "compute"
+      timeout: 25.0
+
+    - phrase: "reason through"
+      timeout: 35.0
+
+    - phrase: "figure out"
+      timeout: 30.0
+
+    - phrase: "work out"
+      timeout: 30.0
+
+    - phrase: "determine"
+      timeout: 30.0
+
+
+    # ─────────────────────────────────────────────
+    # CODING / DEVELOPMENT
+    # ─────────────────────────────────────────────
+    - phrase: "code"
+      timeout: 30.0
+
+    - phrase: "implement"
+      timeout: 35.0
+
+    - phrase: "build"
+      timeout: 35.0
+
+    - phrase: "create"
+      timeout: 35.0
+
+    - phrase: "write"
+      timeout: 35.0
+
+    - phrase: "generate"
+      timeout: 35.0
+
+    - phrase: "refactor"
+      timeout: 35.0
+
+    - phrase: "optimize"
+      timeout: 35.0
+
+    - phrase: "debug"
+      timeout: 35.0
+
+    - phrase: "fix"
+      timeout: 35.0
+
+    - phrase: "patch"
+      timeout: 35.0
+
+    - phrase: "test"
+      timeout: 30.0
+
+    - phrase: "compile"
+      timeout: 30.0
+
+    - phrase: "run"
+      timeout: 25.0
+
+    - phrase: "execute"
+      timeout: 30.0
+
+    - phrase: "deploy"
+      timeout: 40.0
+
+    - phrase: "integrate"
+      timeout: 35.0
+
+    - phrase: "migrate"
+      timeout: 40.0
+
+    - phrase: "rewrite"
+      timeout: 35.0
+
+    - phrase: "improve"
+      timeout: 30.0
+
+    - phrase: "optimize this"
+      timeout: 35.0
+
+    - phrase: "debug this"
+      timeout: 35.0
+
+    - phrase: "fix this"
+      timeout: 35.0
+
+    - phrase: "review this"
+      timeout: 30.0
+
+    - phrase: "inspect this"
+      timeout: 30.0
+
+
+    # ─────────────────────────────────────────────
+    # FILES / SYSTEM / COMPUTER CONTROL
+    # ─────────────────────────────────────────────
+    - phrase: "open"
+      timeout: 20.0
+
+    - phrase: "close the"
+      timeout: 20.0
+    
+    - phrase: "close this"
+      timeout: 20.0
+
+    - phrase: "launch"
+      timeout: 25.0
+
+    - phrase: "start"
+      timeout: 25.0
+
+    - phrase: "stop"
+      timeout: 20.0
+
+    - phrase: "restart"
+      timeout: 25.0
+
+    - phrase: "reload"
+      timeout: 25.0
+
+    - phrase: "save"
+      timeout: 20.0
+
+    - phrase: "delete"
+      timeout: 25.0
+
+    - phrase: "remove"
+      timeout: 25.0
+
+    - phrase: "move"
+      timeout: 25.0
+
+    - phrase: "copy"
+      timeout: 25.0
+
+    - phrase: "rename"
+      timeout: 25.0
+
+    - phrase: "download"
+      timeout: 30.0
+
+    - phrase: "upload"
+      timeout: 30.0
+
+    - phrase: "install"
+      timeout: 35.0
+
+    - phrase: "uninstall"
+      timeout: 35.0
+
+    - phrase: "configure"
+      timeout: 30.0
+
+    - phrase: "enable"
+      timeout: 25.0
+
+    - phrase: "disable"
+      timeout: 25.0
+
+    - phrase: "activate"
+      timeout: 25.0
+
+    - phrase: "deactivate"
+      timeout: 25.0
+
+    - phrase: "monitor"
+      timeout: 35.0
+
+    - phrase: "watch"
+      timeout: 35.0
+
+
+    # ─────────────────────────────────────────────
+    # WRITING / CONTENT
+    # ─────────────────────────────────────────────
+    - phrase: "draft"
+      timeout: 30.0
+
+    - phrase: "compose"
+      timeout: 30.0
+
+    - phrase: "rewrite"
+      timeout: 30.0
+
+    - phrase: "rephrase"
+      timeout: 30.0
+
+    - phrase: "edit"
+      timeout: 30.0
+
+    - phrase: "proofread"
+      timeout: 30.0
+
+    - phrase: "summarize"
+      timeout: 30.0
+
+    - phrase: "summarise"
+      timeout: 30.0
+
+    - phrase: "condense"
+      timeout: 30.0
+
+    - phrase: "expand"
+      timeout: 30.0
+
+    - phrase: "format"
+      timeout: 30.0
+
+    - phrase: "organize"
+      timeout: 30.0
+
+    - phrase: "organise"
+      timeout: 30.0
+
+    - phrase: "outline"
+      timeout: 30.0
+
+    - phrase: "list"
+      timeout: 25.0
+
+    - phrase: "draft a plan"
+      timeout: 35.0
+
+
+    # ─────────────────────────────────────────────
+    # MEMORY / NOTES / REMINDERS
+    # ─────────────────────────────────────────────
+    - phrase: "remember"
+      timeout: 30.0
+
+    - phrase: "memorize"
+      timeout: 30.0
+
+    - phrase: "memorise"
+      timeout: 30.0
+
+    - phrase: "take a note"
+      timeout: 35.0
+
+    - phrase: "make a note"
+      timeout: 35.0
+
+    - phrase: "note this"
+      timeout: 35.0
+
+    - phrase: "write this down"
+      timeout: 35.0
+
+    - phrase: "save this"
+      timeout: 30.0
+
+    - phrase: "remember this"
+      timeout: 30.0
+
+    - phrase: "remind me"
+      timeout: 35.0
+
+    - phrase: "set a reminder"
+      timeout: 35.0
+
+
+    # ─────────────────────────────────────────────
+    # PLANNING / DECISION SUPPORT
+    # ─────────────────────────────────────────────
+    - phrase: "plan"
+      timeout: 35.0
+
+    - phrase: "design"
+      timeout: 35.0
+
+    - phrase: "architect"
+      timeout: 40.0
+
+    - phrase: "recommend"
+      timeout: 30.0
+
+    - phrase: "suggest"
+      timeout: 30.0
+
+    - phrase: "prioritize"
+      timeout: 30.0
+
+    - phrase: "prioritise"
+      timeout: 30.0
+
+    - phrase: "decide"
+      timeout: 30.0
+
+    - phrase: "choose"
+      timeout: 30.0
+
+    - phrase: "pick"
+      timeout: 25.0
+
+    - phrase: "propose"
+      timeout: 30.0
+
+    - phrase: "prepare"
+      timeout: 30.0
+
+    - phrase: "schedule"
+      timeout: 35.0
+
+    - phrase: "organize this"
+      timeout: 30.0
+
+
+    # ─────────────────────────────────────────────
+    # CONVERSION / TRANSFORMATION
+    # ─────────────────────────────────────────────
+    - phrase: "convert"
+      timeout: 25.0
+
+    - phrase: "transform"
+      timeout: 30.0
+
+    - phrase: "extract"
+      timeout: 30.0
+
+    - phrase: "summarize"
+      timeout: 30.0
+
+    - phrase: "translate"
+      timeout: 30.0
+
+    - phrase: "decode"
+      timeout: 30.0
+
+    - phrase: "encode"
+      timeout: 30.0
+
+    - phrase: "parse"
+      timeout: 30.0
+
+    - phrase: "normalize"
+      timeout: 30.0
+
+    - phrase: "clean"
+      timeout: 30.0
+
+    - phrase: "filter"
+      timeout: 30.0
+
+    - phrase: "sort"
+      timeout: 25.0
+
+    - phrase: "merge"
+      timeout: 30.0
+
+    - phrase: "split"
+      timeout: 25.0
+
+
+    # ─────────────────────────────────────────────
+    # DIAGNOSIS / TROUBLESHOOTING
+    # ─────────────────────────────────────────────
+    - phrase: "diagnose"
+      timeout: 40.0
+
+    - phrase: "troubleshoot"
+      timeout: 40.0
+
+    - phrase: "investigate"
+      timeout: 40.0
+
+    - phrase: "find the problem"
+      timeout: 35.0
+
+    - phrase: "find the issue"
+      timeout: 35.0
+
+    - phrase: "find the bug"
+      timeout: 35.0
+
+    - phrase: "trace"
+      timeout: 35.0
+
+    - phrase: "profile"
+      timeout: 35.0
+
+    - phrase: "benchmark"
+      timeout: 35.0
+
+    - phrase: "validate"
+      timeout: 35.0
+
+    - phrase: "verify"
+      timeout: 30.0
+
+
+    # ─────────────────────────────────────────────
+    # ACTION / CONTROL
+    # ─────────────────────────────────────────────
+    - phrase: "do this"
+      timeout: 30.0
+
+    - phrase: "handle this"
+      timeout: 30.0
+
+    - phrase: "take care of this"
+      timeout: 30.0
+
+    - phrase: "deal with this"
+      timeout: 30.0
+
+    - phrase: "work on this"
+      timeout: 30.0
+
+    - phrase: "take this over"
+      timeout: 30.0
+
+    - phrase: "go ahead"
+      timeout: 25.0
+
+    - phrase: "proceed"
+      timeout: 25.0
+
+    - phrase: "continue"
+      timeout: 25.0
+
+    - phrase: "retry"
+      timeout: 25.0
+
+    - phrase: "pause"
+      timeout: 20.0
+
+    - phrase: "resume"
+      timeout: 20.0
+
+    - phrase: "cancel"
+      timeout: 20.0
+
+    - phrase: "abort"
+      timeout: 20.0
+
+    - phrase: "stop"
+      timeout: 20.0
+
+
+    # ─────────────────────────────────────────────
+    # HIGH-SIGNAL COMMAND PHRASES
+    # ─────────────────────────────────────────────
+    - phrase: "get me"
+      timeout: 30.0
+
+    - phrase: "bring me"
+      timeout: 30.0
+
+    - phrase: "show me"
+      timeout: 30.0
+
+    - phrase: "give me"
+      timeout: 30.0
+
+    - phrase: "find me"
+      timeout: 30.0
+
+    - phrase: "build me"
+      timeout: 35.0
+
+    - phrase: "make me"
+      timeout: 35.0
+
+    - phrase: "prepare me"
+      timeout: 35.0
+
+    - phrase: "set up"
+      timeout: 30.0
+
+    - phrase: "put together"
+      timeout: 35.0
+
+    - phrase: "figure this out"
+      timeout: 35.0
+
+    - phrase: "sort this out"
+      timeout: 35.0
+
+    - phrase: "work this out"
+      timeout: 35.0
+
+    - phrase: "take a look"
+      timeout: 30.0
+
+    - phrase: "have a look"
+      timeout: 30.0
+
+    - phrase: "go through"
+      timeout: 30.0
+
+    - phrase: "check this"
+      timeout: 30.0
+
+    - phrase: "look at this"
+      timeout: 30.0
+
+
+    # ─────────────────────────────────────────────
+    # NATURAL COMMAND-LIKE PHRASES
+    # ─────────────────────────────────────────────
+    - phrase: "handle"
+      timeout: 30.0
+
+    - phrase: "take over"
+      timeout: 30.0
+
+    - phrase: "sort out"
+      timeout: 30.0
+
+    - phrase: "work on"
+      timeout: 30.0
+
+    - phrase: "deal with"
+      timeout: 30.0
+
+    - phrase: "take care of"
+      timeout: 30.0
+
+    - phrase: "figure out"
+      timeout: 30.0
+
+    - phrase: "look into"
+      timeout: 30.0
+
+    - phrase: "go through"
+      timeout: 30.0
+
+    - phrase: "walk through"
+      timeout: 30.0
+
+    - phrase: "break down"
+      timeout: 30.0
+
+    - phrase: "dig deeper"
+      timeout: 30.0
+
+    - phrase: "look deeper"
+      timeout: 30.0
+
+    - phrase: "check again"
+      timeout: 25.0
+
+    - phrase: "try again"
+      timeout: 25.0
+
+    - phrase: "do it again"
+      timeout: 25.0
+
+    - phrase: "start with"
+      timeout: 30.0
+
+    - phrase: "begin with"
+      timeout: 30.0
+
+    - phrase: "focus on"
+      timeout: 30.0
+
+# ------------------------------------------------------------------------------
+# 7. Speaker Recognition & 3-Mode Barge-In Guard Settings
+# ------------------------------------------------------------------------------
+barge_in_guard:
+  # Mode: "anti_kokoro", "speaker_recognition", or "off"
+  # - "anti_kokoro": Rejects Kokoro assistant voiceprint from speakers. Zero setup.
+  #                  Anyone can barge-in without cutting assistant off on its own voice.
+  # - "speaker_recognition": Only enrolled user voiceprints can talk and barge-in.
+  #                          Ignores strangers, TV, and assistant echo.
+  # - "off": Raw VAD barge-in without voiceprint verification (for headphones).
+  mode: "anti_kokoro"
+
+  # Cosine similarity threshold for user verification (0.0 to 1.0)
+  user_similarity_threshold: 0.65
+
+  # Cosine similarity threshold to identify Kokoro speaker echo (0.0 to 1.0)
+  kokoro_similarity_threshold: 0.60
+
+  # Optional speaker whitelist (empty list [] = all enrolled speakers in ~/.cache/swar/voiceprints/)
+  authorized_speakers: []
+

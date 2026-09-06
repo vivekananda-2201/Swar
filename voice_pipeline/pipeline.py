@@ -11,6 +11,7 @@ Uses the exact VAD and STT pipeline from huggingface/speech-to-speech:
 
 from __future__ import annotations
 
+import collections
 import logging
 import queue
 import sys
@@ -18,6 +19,8 @@ import threading
 import time
 import warnings
 from typing import Callable, Iterator, Optional
+
+import numpy as np
 
 # Suppress harmless PyTorch/Kokoro and upstream deprecation warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -286,6 +289,72 @@ class VoicePipeline:
         self._active_turn_id = 0
         self._active_turn_interrupted = threading.Event()
 
+        # Speaker Recognition & 3-Mode Barge-In Guard
+        self.barge_guard_config = getattr(self.config, "barge_in_guard", None)
+        self.barge_guard_mode = getattr(self.barge_guard_config, "mode", "anti_kokoro") if self.barge_guard_config else "anti_kokoro"
+        self.voiceprint_manager = None
+        self._recent_mic_chunks: collections.deque = collections.deque(maxlen=40)  # ~1.28s of 16kHz audio
+
+        if self.barge_guard_mode != "off":
+            try:
+                from voice_pipeline.speaker_verification import VoiceprintManager
+                vp_dir = getattr(self.barge_guard_config, "voiceprints_dir", None)
+                model_p = getattr(self.barge_guard_config, "model_path", None)
+                self.voiceprint_manager = VoiceprintManager(model_path=model_p, voiceprints_dir=vp_dir)
+                if self.barge_guard_mode == "anti_kokoro":
+                    self.voiceprint_manager.ensure_kokoro_voiceprint(self.tts_engine, self.config.tts.voice)
+                self._log(f"[cyan]Speaker Guard active: mode='{self.barge_guard_mode}'[/cyan]")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Speaker Guard ({e}); falling back to mode='off'")
+                self.barge_guard_mode = "off"
+                self.voiceprint_manager = None
+
+    def _get_recent_mic_audio(self) -> Optional[np.ndarray]:
+        """Extracts float32 16kHz audio from recent mic buffer for speaker verification."""
+        if not self._recent_mic_chunks:
+            return None
+        raw = b"".join(self._recent_mic_chunks)
+        if len(raw) < 1024:
+            return None
+        return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+    def _should_allow_barge_in(self) -> bool:
+        """
+        Determines whether speech detected during assistant playback is valid barge-in
+        or should be suppressed (e.g. Kokoro speaker echo, unauthorized speaker).
+        """
+        if self.barge_guard_mode == "off" or self.voiceprint_manager is None:
+            return True
+
+        mic_audio = self._get_recent_mic_audio()
+        if mic_audio is None or len(mic_audio) < 3200:  # Need at least ~0.2s of audio
+            return True
+
+        if self.barge_guard_mode == "anti_kokoro":
+            thresh = getattr(self.barge_guard_config, "kokoro_similarity_threshold", 0.60)
+            is_kokoro, score, matched_voice = self.voiceprint_manager.is_kokoro_echo(mic_audio, threshold=thresh)
+            if is_kokoro:
+                logger.debug(f"[BargeGuard] Suppressed Kokoro speaker echo ({matched_voice}, score={score:.3f} >= {thresh})")
+                return False
+            else:
+                logger.info(f"[BargeGuard] Non-Kokoro speech detected (score={score:.3f} < {thresh}); allowing barge-in!")
+                return True
+
+        elif self.barge_guard_mode == "speaker_recognition":
+            thresh = getattr(self.barge_guard_config, "user_similarity_threshold", 0.65)
+            auth_speakers = getattr(self.barge_guard_config, "authorized_speakers", None)
+            is_user, user_name, score = self.voiceprint_manager.matches_authorized_user(
+                mic_audio, threshold=thresh, authorized_names=auth_speakers
+            )
+            if is_user:
+                logger.info(f"[BargeGuard] Authorized user '{user_name}' matched (score={score:.3f}); allowing barge-in!")
+                return True
+            else:
+                logger.debug(f"[BargeGuard] Unauthorized speaker / echo (score={score:.3f} < {thresh}); suppressing barge-in.")
+                return False
+
+        return True
+
     def _is_pipeline_busy(self) -> bool:
         """True if assistant is generating, TTS is busy, or user is speaking."""
         tts_busy = getattr(self, "tts_pipeline", None) is not None and self.tts_pipeline.is_busy
@@ -382,8 +451,10 @@ class VoicePipeline:
             # This protects against noisy room interruptions and speaker echo
             if not self.allow_barge_in and self.tts_pipeline.is_speaking:
                 return
+            raw_bytes = bytes(indata)
+            self._recent_mic_chunks.append(raw_bytes)
             try:
-                self.audio_in_queue.put_nowait(bytes(indata))
+                self.audio_in_queue.put_nowait(raw_bytes)
             except queue.Full:
                 logger.debug("Audio in queue full, dropping frame")
 
@@ -513,7 +584,8 @@ class VoicePipeline:
             if isinstance(event, SpeechStartedEvent):
                 self._is_user_speaking = True
                 if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
-                    self._handle_interruption()
+                    if self._should_allow_barge_in():
+                        self._handle_interruption()
                 self.wake_engine.activity()
                 if self.on_speech_started:
                     self.on_speech_started()
@@ -522,7 +594,8 @@ class VoicePipeline:
             elif isinstance(event, PartialTranscriptionEvent):
                 self._is_user_speaking = True
                 if self.allow_barge_in and (self.tts_pipeline.is_busy or self._is_generating_response):
-                    self._handle_interruption()
+                    if self._should_allow_barge_in():
+                        self._handle_interruption()
                 delta = getattr(event, "delta", "").strip()
                 if delta:
                     # In wake_mode standby, suppress realtime noise spam to terminal
@@ -561,6 +634,24 @@ class VoicePipeline:
                 if transcript:
                     if self.verbose:
                         sys.stdout.write("\r\033[K")
+
+                    # In speaker_recognition mode with enrolled users, verify speaker authorization
+                    if (
+                        self.barge_guard_mode == "speaker_recognition"
+                        and self.voiceprint_manager
+                        and self.voiceprint_manager.user_voiceprints
+                    ):
+                        mic_audio = self._get_recent_mic_audio()
+                        if mic_audio is not None and len(mic_audio) >= 4000:
+                            thresh = getattr(self.barge_guard_config, "user_similarity_threshold", 0.65)
+                            auth_speakers = getattr(self.barge_guard_config, "authorized_speakers", None)
+                            is_user, user_name, score = self.voiceprint_manager.matches_authorized_user(
+                                mic_audio, threshold=thresh, authorized_names=auth_speakers
+                            )
+                            if not is_user:
+                                if self.verbose:
+                                    console.print(f"[dim](Speaker Guard: ignored speech from unrecognized voice, score={score:.2f})[/dim]")
+                                continue
 
                     if self.wake_mode:
                         should_forward, text_to_forward = self.wake_engine.process_transcript(transcript)
