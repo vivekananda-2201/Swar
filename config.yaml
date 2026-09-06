@@ -979,3 +979,28 @@ barge_in_guard:
   # Optional speaker whitelist (empty list [] = all enrolled speakers in ~/.cache/swar/voiceprints/)
   authorized_speakers: []
 
+# ------------------------------------------------------------------------------
+# 8. PipeWire Hardware/Driver-Level AEC Settings (Arch Linux / PipeWire users only)
+# ------------------------------------------------------------------------------
+pipewire_aec:
+  # Master toggle:
+  # - true:  Uses PipeWire's real-time WebRTC AEC3 filter (module-echo-cancel) to
+  #          subtract Kokoro TTS speaker audio from the microphone at the driver level.
+  #          This provides instant echo suppression without running CAM++ voiceprint matching
+  #          on assistant audio. The enrolled user whitelist logic remains active.
+  # - false: Uses the universal 3-Mode CAM++ voiceprint guard (cross-platform default).
+  enabled: false
+
+  # Automatically load and unload PipeWire module-echo-cancel via pactl
+  auto_load_module: true
+
+  # Virtual echo-cancelled microphone source name
+  source_name: "echo-cancel-source"
+
+  # Virtual echo-cancelled speaker sink name
+  sink_name: "echo-cancel-sink"
+
+  # Restore original default audio devices when pipeline exits
+  restore_defaults_on_exit: true
+
+

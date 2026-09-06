@@ -289,19 +289,51 @@ class VoicePipeline:
         self._active_turn_id = 0
         self._active_turn_interrupted = threading.Event()
 
+        # PipeWire Kernel/Driver-Level AEC (Arch Linux / PipeWire users only)
+        self.pipewire_aec_config = getattr(self.config, "pipewire_aec", None)
+        self.pipewire_aec_manager = None
+        self.pipewire_aec_active = False
+
+        if self.pipewire_aec_config and getattr(self.pipewire_aec_config, "enabled", False):
+            try:
+                from voice_pipeline.pipewire_aec import PipeWireAECManager
+                auto_l = getattr(self.pipewire_aec_config, "auto_load_module", True)
+                src_n = getattr(self.pipewire_aec_config, "source_name", "echo-cancel-source")
+                snk_n = getattr(self.pipewire_aec_config, "sink_name", "echo-cancel-sink")
+                rst = getattr(self.pipewire_aec_config, "restore_defaults_on_exit", True)
+                self.pipewire_aec_manager = PipeWireAECManager(
+                    auto_load=auto_l,
+                    source_name=src_n,
+                    sink_name=snk_n,
+                    restore_defaults=rst,
+                )
+                if self.pipewire_aec_manager.start():
+                    self.pipewire_aec_active = True
+                    self._log("[bold green]✓ PipeWire WebRTC AEC active (driver-level echo cancellation)[/bold green]")
+                else:
+                    self._log("[yellow]⚠️ PipeWire AEC could not be activated; falling back to CAM++ Voiceprint Guard[/yellow]")
+            except Exception as e:
+                logger.warning(f"Failed to initialize PipeWire AEC ({e}); falling back to CAM++ Voiceprint Guard")
+
         # Speaker Recognition & 3-Mode Barge-In Guard
         self.barge_guard_config = getattr(self.config, "barge_in_guard", None)
         self.barge_guard_mode = getattr(self.barge_guard_config, "mode", "anti_kokoro") if self.barge_guard_config else "anti_kokoro"
         self.voiceprint_manager = None
         self._recent_mic_chunks: collections.deque = collections.deque(maxlen=40)  # ~1.28s of 16kHz audio
 
-        if self.barge_guard_mode != "off":
+        # If PipeWire AEC is active, it suppresses Kokoro echo at the audio server level
+        # Voiceprints are still loaded if speaker_recognition mode is selected for user whitelist
+        needs_voiceprint = (self.barge_guard_mode != "off") and (
+            not self.pipewire_aec_active or self.barge_guard_mode == "speaker_recognition"
+        )
+
+        if needs_voiceprint:
             try:
                 from voice_pipeline.speaker_verification import VoiceprintManager
                 vp_dir = getattr(self.barge_guard_config, "voiceprints_dir", None)
                 model_p = getattr(self.barge_guard_config, "model_path", None)
                 self.voiceprint_manager = VoiceprintManager(model_path=model_p, voiceprints_dir=vp_dir)
-                if self.barge_guard_mode == "anti_kokoro":
+                if self.barge_guard_mode == "anti_kokoro" and not self.pipewire_aec_active:
                     self.voiceprint_manager.ensure_kokoro_voiceprint(self.tts_engine, self.config.tts.voice)
                 self._log(f"[cyan]Speaker Guard active: mode='{self.barge_guard_mode}'[/cyan]")
             except Exception as e:
@@ -323,6 +355,33 @@ class VoicePipeline:
         Determines whether speech detected during assistant playback is valid barge-in
         or should be suppressed (e.g. Kokoro speaker echo, unauthorized speaker).
         """
+        # If PipeWire AEC is active, Kokoro echo has already been cancelled in hardware/driver
+        if self.pipewire_aec_active:
+            # In speaker_recognition mode, still verify speaker authorization whitelist!
+            if (
+                self.barge_guard_mode == "speaker_recognition"
+                and self.voiceprint_manager
+                and self.voiceprint_manager.user_voiceprints
+            ):
+                mic_audio = self._get_recent_mic_audio()
+                if mic_audio is not None and len(mic_audio) >= 3200:
+                    thresh = getattr(self.barge_guard_config, "user_similarity_threshold", 0.65)
+                    auth_speakers = getattr(self.barge_guard_config, "authorized_speakers", None)
+                    is_user, user_name, score = self.voiceprint_manager.matches_authorized_user(
+                        mic_audio, threshold=thresh, authorized_names=auth_speakers
+                    )
+                    if is_user:
+                        logger.info(f"[BargeGuard:PipeWireAEC] Authorized user '{user_name}' matched (score={score:.3f}); allowing barge-in!")
+                        return True
+                    else:
+                        logger.debug(f"[BargeGuard:PipeWireAEC] Unauthorized voice (score={score:.3f}); suppressing barge-in.")
+                        return False
+
+            # In anti_kokoro or off mode, PipeWire WebRTC AEC already cancelled Kokoro TTS echo
+            # at the audio server level, so any detected speech is genuine human speech!
+            logger.debug("[BargeGuard:PipeWireAEC] Echo cancelled by PipeWire AEC; allowing human barge-in immediately!")
+            return True
+
         if self.barge_guard_mode == "off" or self.voiceprint_manager is None:
             return True
 
@@ -495,6 +554,9 @@ class VoicePipeline:
         for t in self.threads:
             if t.is_alive():
                 t.join(timeout=0.5)
+
+        if self.pipewire_aec_manager:
+            self.pipewire_aec_manager.stop()
 
         self._log("[yellow]Voice Pipeline stopped.[/yellow]")
 

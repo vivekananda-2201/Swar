@@ -124,6 +124,11 @@ def main():
         default=None,
         help="Barge-in speaker guard mode: 'anti_kokoro' (rejects speaker echo), 'speaker_recognition' (user whitelist), or 'off'",
     )
+    parser.add_argument(
+        "--pipewire-aec",
+        action="store_true",
+        help="Enable PipeWire WebRTC AEC hardware/driver echo cancellation (Arch Linux / PipeWire users only)",
+    )
     args = parser.parse_args()
 
     # Load voice pipeline configuration
@@ -134,11 +139,13 @@ def main():
         config.wake_word.enabled = True
     if args.barge_guard:
         config.barge_in_guard.mode = args.barge_guard
+    if args.pipewire_aec:
+        config.pipewire_aec.enabled = True
 
     triggers_str = ", ".join([f"'{t.phrase}' ({t.timeout:.0f}s)" for t in config.wake_word.triggers]) or "none"
     wake_status = f"Enabled [{triggers_str}]" if config.wake_word.enabled else "Disabled (Continuous)"
     thinking_status = "Enabled" if args.enable_thinking else "Disabled (Fast Voice)"
-    guard_status = f"{config.barge_in_guard.mode}"
+    aec_status = "PipeWire WebRTC AEC (Driver Level)" if config.pipewire_aec.enabled else f"CAM++ Voiceprint ({config.barge_in_guard.mode})"
 
     # Initialize Benchmark Logger
     benchmark = BenchmarkLogger(
@@ -157,7 +164,8 @@ def main():
             f"[dim]• Compute / Threads:[/dim] {config.general.device.upper()} ({thread_info})\n"
             f"[dim]• Endpoint:[/dim] {args.url} | [dim]Model:[/dim] {args.model} (~{args.expected_tok_s:.0f} tok/s)\n"
             f"[dim]• Benchmark Output:[/dim] [bold yellow]{benchmark.session_file}[/bold yellow]\n"
-            f"[dim]• Voice:[/dim] {config.tts.voice} (speed: {config.tts.speed}x) | [dim]Barge-in:[/dim] {'Enabled' if config.general.allow_barge_in else 'Disabled'} (Guard: [bold green]{guard_status}[/bold green])\n"
+            f"[dim]• Voice:[/dim] {config.tts.voice} (speed: {config.tts.speed}x) | [dim]Barge-in:[/dim] {'Enabled' if config.general.allow_barge_in else 'Disabled'}\n"
+            f"[dim]• Echo Defense:[/dim] [bold green]{aec_status}[/bold green]\n"
             f"[dim]• Wake Mode:[/dim] {wake_status} | [dim]Thinking:[/dim] {thinking_status}\n"
             f"[dim]Press Ctrl+C to stop and display the benchmark summary table.[/dim]"
         )

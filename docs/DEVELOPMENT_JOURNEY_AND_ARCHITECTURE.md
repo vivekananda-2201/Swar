@@ -435,6 +435,13 @@ We engineered a native, cross-platform **3-Mode Adaptive Barge-In Guard** integr
    - **Multi-Voice Support**: Enrolls and manages multiple Kokoro voices (`af_bella`, `af_heart`, `am_adam`, `bf_emma`, etc.) with audio previews on Enter and silence environment verification.
    - **Voiceprint Management**: Full interactive deletion and live microphone testing with real-time similarity metrics.
 
+5. **Arch Linux & PipeWire Driver-Level WebRTC AEC (Optional Acceleration)**:
+   - For users running Arch Linux or modern Linux distributions with PipeWire, Swar provides an optional hardware/driver-level cancellation engine (`pipewire_aec.enabled: true` or `--pipewire-aec`).
+   - Swar programmatically loads and configures PipeWire's `module-echo-cancel` (WebRTC AEC3), routing output to `echo-cancel-sink` and input to `echo-cancel-source`.
+   - **Performance Impact**: Because Kokoro echo is subtracted at the driver level, Swar bypasses the ~3ms CAM++ Kokoro voiceprint comparison for echo suppression, achieving virtually 0ms cancellation overhead!
+   - **User Whitelist Preserved**: If `speaker_recognition` mode is active, the CAM++ authorized speaker whitelist is still fully enforced so only enrolled user voices can talk and barge in.
+   - **Safe Cleanup**: On pipeline exit or interrupt, Swar automatically restores original system default audio devices and unloads the virtual module.
+
 ---
 
 ## 5. The Decoupled Compute-Ahead TTS In-Depth

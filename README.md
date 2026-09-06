@@ -197,6 +197,23 @@ Swar solves this with an ultra-lightweight **3-Mode Barge-In Guard** powered by 
 
 ---
 
+### 🚀 Arch Linux / PipeWire Hardware AEC Mode (Optional)
+
+For users running **Arch Linux** or Linux distributions with **PipeWire**, Swar provides an optional hardware/driver-level echo cancellation engine that utilizes PipeWire's built-in WebRTC AEC3 (`module-echo-cancel`):
+
+- **Driver-Level Echo Cancellation**: PipeWire actively subtracts Kokoro's output audio inside the audio server before the microphone stream ever enters Python.
+- **Zero Echo Verification Latency**: When enabled, Swar bypasses the ~3ms CAM++ Kokoro voiceprint comparison for echo suppression because Kokoro's voice has already been eliminated at the driver level, providing instant human barge-in response!
+- **Speaker Whitelist Intact**: If running in `speaker_recognition` mode, the CAM++ authorized speaker whitelist is still fully enforced so only your enrolled voice can speak and interrupt.
+- **Automatic Setup & Graceful Cleanup**: Swar automatically loads `module-echo-cancel`, configures the virtual echo-cancelled devices, and restores your system's original audio defaults when the pipeline exits.
+- **Graceful Fallback**: If PipeWire is not present or disabled, Swar automatically falls back to the cross-platform CAM++ Voiceprint Guard.
+
+```bash
+# Enable PipeWire AEC via CLI:
+python examples/02_llm_voice_chat.py --url http://127.0.0.1:8080/v1 --wake --pipewire-aec
+```
+
+---
+
 ### 🎙️ Swar Voiceprint & Acoustic Studio (`tools/enroll_voice.py`)
 
 Swar includes a dedicated, standalone studio for enrolling users, acoustically calibrating machine speakers, and managing voiceprints:
@@ -516,6 +533,13 @@ barge_in_guard:
   user_similarity_threshold: 0.65       # Min cosine similarity for authorized user
   kokoro_similarity_threshold: 0.60     # Min cosine similarity to classify as Kokoro echo
   authorized_speakers: []               # Whitelist (empty = all in ~/.cache/swar/voiceprints/)
+
+pipewire_aec:
+  enabled: false               # Arch Linux / PipeWire hardware echo cancellation toggle
+  auto_load_module: true       # Auto-load module-echo-cancel via pactl
+  source_name: "echo-cancel-source"
+  sink_name: "echo-cancel-sink"
+  restore_defaults_on_exit: true
 ```
 
 ---

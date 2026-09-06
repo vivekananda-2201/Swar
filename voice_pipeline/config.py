@@ -84,6 +84,21 @@ class BargeInGuardConfig:
 
 
 @dataclass
+class PipeWireAECConfig:
+    """
+    PipeWire Hardware/Driver-Level WebRTC Acoustic Echo Cancellation (AEC).
+    Exclusively for Linux systems running PipeWire (e.g. Arch Linux, Fedora, Ubuntu 24.04+).
+    When enabled, PipeWire subtracts Kokoro TTS audio from the microphone in real-time,
+    providing instant echo cancellation faster than CAM++ voiceprint matching.
+    """
+    enabled: bool = False                               # Master toggle for PipeWire WebRTC AEC
+    auto_load_module: bool = True                       # Auto-load module-echo-cancel via pactl
+    source_name: str = "echo-cancel-source"             # Echo-cancelled virtual mic source
+    sink_name: str = "echo-cancel-sink"                 # Echo-cancelled virtual speaker sink
+    restore_defaults_on_exit: bool = True               # Restore original devices on exit
+
+
+@dataclass
 class PipelineConfig:
     """Unified master configuration for the entire voice pipeline."""
     general: GeneralConfig = field(default_factory=GeneralConfig)
@@ -93,6 +108,7 @@ class PipelineConfig:
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
     barge_in_guard: BargeInGuardConfig = field(default_factory=BargeInGuardConfig)
+    pipewire_aec: PipeWireAECConfig = field(default_factory=PipeWireAECConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
@@ -117,6 +133,7 @@ class PipelineConfig:
             ]
 
         barge_guard_data = data.get("barge_in_guard", {})
+        pipewire_aec_data = data.get("pipewire_aec", {})
 
         return cls(
             general=GeneralConfig(**general_data),
@@ -126,6 +143,7 @@ class PipelineConfig:
             chunking=ChunkingConfig(**chunking_data),
             wake_word=WakeWordConfig.from_dict(wake_word_data),
             barge_in_guard=BargeInGuardConfig(**barge_guard_data),
+            pipewire_aec=PipeWireAECConfig(**pipewire_aec_data),
         )
 
     @classmethod
