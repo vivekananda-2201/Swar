@@ -33,12 +33,21 @@ from voice_pipeline.config import (
     STTConfig,
     TTSConfig,
     VADConfig,
+    BargeInGuardConfig,
+    PipeWireAECConfig,
 )
 from voice_pipeline.wake_word import (
     WakeWordConfig,
     WakeTriggerConfig,
     WakeWordEngine,
     WakeState,
+)
+from voice_pipeline.speaker_verification import (
+    VoiceprintManager,
+    SpeakerEmbeddingExtractor,
+)
+from voice_pipeline.pipewire_aec import (
+    PipeWireAECManager,
 )
 from voice_pipeline.pipeline import VoicePipeline
 from voice_pipeline.benchmark import BenchmarkLogger
@@ -67,4 +76,9 @@ __all__ = [
     "WakeWordEngine",
     "WakeState",
     "BenchmarkLogger",
+    "BargeInGuardConfig",
+    "PipeWireAECConfig",
+    "VoiceprintManager",
+    "SpeakerEmbeddingExtractor",
+    "PipeWireAECManager",
 ]
