@@ -16,7 +16,7 @@
    - [Phase 4: Full-Duplex Interruption & Bounded Audio Cutoff](#phase-4-full-duplex-interruption--bounded-audio-cutoff)
    - [Phase 5: Stateful Wake Word & Wake Sentence Detection](#phase-5-stateful-wake-word--wake-sentence-detection)
    - [Phase 6: Thinking / Reasoning LLM Suppression](#phase-6-thinking--reasoning-llm-suppression)
-4. [Deep-Dive into the 7 Major Bugs & Engineering Battles](#4-deep-dive-into-the-7-major-bugs--engineering-battles)
+4. [Deep-Dive into the 8 Major Bugs & Engineering Battles](#4-deep-dive-into-the-8-major-bugs--engineering-battles)
    - [Bug 1: PortAudio ALSA Memory-Map Driver Crash (`alsa_snd_pcm_mmap_begin`)](#bug-1-portaudio-alsa-memory-map-driver-crash-alsa_snd_pcm_mmap_begin)
    - [Bug 2: Recursive Lock Deadlock in Multi-Threaded TTS Scheduling](#bug-2-recursive-lock-deadlock-in-multi-threaded-tts-scheduling)
    - [Bug 3: Inter-Turn Audio Bleeding & Lost Interruption Utterances](#bug-3-inter-turn-audio-bleeding--lost-interruption-utterances)
@@ -24,6 +24,7 @@
    - [Bug 5: The "Relic" Wake Word Bug (Strict Prefix vs. Natural Human Speech)](#bug-5-the-relic-wake-word-bug-strict-prefix-vs-natural-human-speech)
    - [Bug 6: Stale Audio Racing & Turn Epoch Invalidation](#bug-6-stale-audio-racing--turn-epoch-invalidation)
    - [Bug 7: Sound Card Buffer Underrun & Slice Latency Stacking](#bug-7-sound-card-buffer-underrun--slice-latency-stacking)
+   - [Bug 8: Open-Speaker Acoustic Feedback & The Infinite Self-Interruption Loop](#bug-8-open-speaker-acoustic-feedback--the-infinite-self-interruption-loop)
 5. [The Decoupled Compute-Ahead TTS In-Depth](#5-the-decoupled-compute-ahead-tts-in-depth)
 6. [Wake Word Engine Mechanics & State Machine](#6-wake-word-engine-mechanics--state-machine)
 7. [CPU Optimization Techniques & Rigorous Benchmark Analysis](#7-cpu-optimization-techniques--rigorous-benchmark-analysis)
@@ -375,6 +376,64 @@ We benchmarked block sizes from 128 to 4096 samples on CPU under load:
 - 128 samples: High CPU context-switch overhead, ALSA buffer underruns.
 - 256 samples: Occasional jitter during model inference bursts.
 - **512 samples (~21.3ms)**: The sweet spot. Clean audio, zero underruns, and human-imperceptible 21.3ms cutoff latency.
+
+---
+
+### Bug 8: Open-Speaker Acoustic Feedback & The Infinite Self-Interruption Loop
+
+#### The Symptom
+During testing on open laptop/desktop speakers without headphones, the assistant was completely unusable: the moment Kokoro began speaking its very first word, the assistant interrupted itself and immediately stopped talking. Within a second, it attempted to resume or re-trigger, interrupted itself again, and entered an infinite self-interruption loop.
+
+#### Root Cause Analysis
+In laptop form factors, the internal speakers and microphones share the same physical chassis. When Kokoro synthesizes 24kHz audio and plays it through the sound card, sound waves radiate directly through the chassis plastic/aluminum and through the air into the microphone. 
+
+Because Silero VAD is designed to detect *any* human speech activity, it correctly classified Kokoro's expressive speech as valid voice activity, triggering `SpeechStartedEvent`. Since full-duplex barge-in was enabled (`allow_barge_in=true`), Swar obediently halted playback within ~21ms to allow the "user" to speak. The "speaker" was the assistant itself.
+
+```
+┌─────────────────┐       Chassis Resonance & Air Waves       ┌─────────────────┐
+│ Laptop Speakers │ ─────────────────────────────────────────> │   Laptop Mic    │
+│  (Kokoro 24k)   │                                           │  (Captures TTS) │
+└─────────────────┘                                           └────────┬────────┘
+        ▲                                                              │
+        │                                                              ▼
+┌───────┴─────────┐         Halts Playback within 21.3ms      ┌─────────────────┐
+│ Assistant Muted │ <──────────────────────────────────────── │ Silero VAD:     │
+│ (Infinite Loop) │                                           │ SpeechStarted!  │
+└─────────────────┘                                           └─────────────────┘
+```
+
+#### Why Naive Fixes Failed
+1. **Half-Duplex Mic Muting**: Muting the mic or ignoring VAD while the assistant is speaking eliminates self-interruption, but completely destroys full-duplex conversational barge-in. The user cannot interrupt long explanations and is forced to wait until the assistant finishes.
+2. **OS-Level Acoustic Echo Cancellation (PipeWire / PulseAudio AEC)**: Linux PipeWire offers `module-echo-cancel` (using WebRTC AEC). While functional on properly configured desktop Linux distros, relying on it creates severe portability issues: it fails on Windows (WASAPI), fails on macOS (CoreAudio), requires administrative setup of ALSA loopback sinks, and introduces phase distortion and latency to the microphone stream.
+3. **Hardcoded Interrupt Keywords**: Requiring the user to shout "Stop!" or "Cancel!" requires a secondary keyword engine that feels clunky, unnatural, and latency-heavy.
+
+#### The Architectural Solution: In-Pipeline CAM++ Voiceprint Guard
+We engineered a native, cross-platform **3-Mode Adaptive Barge-In Guard** integrated directly into the runtime's event loop, powered by the **CAM++ (D-TDNN)** speaker embedding network:
+
+1. **Sub-3ms Speaker Verification on CPU**:
+   - Model: 28MB ONNX model (`campplus_cn_en_common_200k.onnx`).
+   - Runs in ~3ms on CPU via `onnxruntime` with `CPUExecutionProvider`.
+   - Computes 80-dim log-Mel filterbanks with Kaldi standard and produces L2-normalized 192-dimensional unit vectors.
+
+2. **Rolling Microphone Audio Buffer**:
+   - `VoicePipeline` maintains a rolling 16-bit PCM queue (`collections.deque(maxlen=40)`, holding ~1.28s of 16kHz audio).
+   - When Silero VAD fires `SpeechStartedEvent` or `PartialTranscriptionEvent` during assistant playback, `_should_allow_barge_in()` inspects the rolling buffer before deciding whether to trigger cancellation.
+
+3. **3 Operating Modes**:
+   - **Mode 1 (`anti_kokoro` - Default, Zero Setup)**:
+     Swar pre-caches reference voiceprints for Kokoro voices (`kokoro_<voice>.npy`). When speech is detected during playback:
+     $$\text{similarity} = \vec{e}_{\text{mic}} \cdot \vec{e}_{\text{kokoro}}$$
+     If $\text{similarity} \ge 0.60$, the system proves the microphone is simply hearing the assistant's own speaker reflection. The event is silently ignored, and playback continues uninterrupted! If an actual human speaks over the speaker, the combined acoustic signal diverges ($\text{similarity} < 0.60$), and barge-in immediately halts playback!
+   - **Mode 2 (`speaker_recognition` - Whitelist Mode)**:
+     Compares incoming mic audio against enrolled user voiceprints (`~/.cache/swar/voiceprints/<name>.npy`). Only authorized users can talk and interrupt. Strangers, background conversations, TV audio, and Kokoro speaker reflections are completely filtered out.
+   - **Mode 3 (`off`)**:
+     Raw Silero VAD without verification (ideal when wearing headphones).
+
+4. **Swar Voiceprint & Acoustic Studio (`tools/enroll_voice.py`)**:
+   - A standalone interactive CLI tool kept strictly decoupled from example scripts.
+   - **Machine Acoustic Calibration**: Plays Kokoro reference audio through physical laptop speakers while recording through the microphone. This captures the exact frequency response, chassis resonance, and room reverberation of the user's physical machine.
+   - **Multi-Voice Support**: Enrolls and manages multiple Kokoro voices (`af_bella`, `af_heart`, `am_adam`, `bf_emma`, etc.) with audio previews on Enter and silence environment verification.
+   - **Voiceprint Management**: Full interactive deletion and live microphone testing with real-time similarity metrics.
 
 ---
 

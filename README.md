@@ -21,6 +21,7 @@ Rather than treating speech as a simple sequential pipeline (record → transcri
 - **Speculative Turn Buffering**: Turn-boundary audio preservation so opening interruption words are never truncated or lost across conversational turns.
 - **Stateful Wake Word Engine**: Case-insensitive, sentence-wide trigger detection that forwards the complete original user transcript to the downstream model.
 - **Reasoning Model Stream Filtering**: In-flight state-machine suppression of internal reasoning monologues (`<think>...</think>`) from models like DeepSeek R1 and Qwen 2.5.
+- **Speaker Echo Defense & Adaptive Barge-In Guard**: 3-mode voiceprint verification powered by CAM++ ONNX (~3ms CPU latency) that eliminates laptop speaker self-interruption on open speakers while allowing genuine human barge-in or personalized user whitelist recognition.
 
 ### Why CPU-First?
 Running speech pipelines on high-TGP GPUs is relatively straightforward due to massive parallel matrix throughput. The true engineering and deployment challenge is achieving responsive, conversational turnarounds on standard multi-core laptop and server **CPUs** without exceeding thermal limits, requiring cloud APIs, or compromising synthesis fidelity.
@@ -98,6 +99,7 @@ Swar takes a **CPU-first** architectural approach: by decoupling synthesis from 
 | **Interruption Retention** | Interrupting words are preserved in VAD memory for the next turn | Opening 1–2 words clipped or lost on barge-in |
 | **Wake Detection** | Multi-phrase, case-insensitive, sentence-wide contains matching | Single fixed word, strict beginning-of-sentence prefix |
 | **Reasoning Model Support**| In-flight state-machine stripping of `<think>` reasoning blocks | Model speaks aloud internal thoughts for 15+ seconds |
+| **Speaker Echo Defense** | **3-Mode Adaptive Barge-In Guard** (CAM++ ~3ms CPU); eliminates self-interruption on open laptop speakers | Requires headphones; infinite self-interruption loop on speakers |
 
 ---
 
@@ -158,6 +160,103 @@ python examples/02_llm_voice_chat.py \
 
 ---
 
+## 🛡️ Speaker Echo Rejection & 3-Mode Barge-In Guard
+
+When using laptop speakers without headphones, traditional voice pipelines suffer from a fatal flaw: **acoustic self-interruption**. The assistant's TTS audio emits from the chassis speakers, reflects off surfaces, enters the microphone, and triggers the VAD (`SpeechStartedEvent`), cutting the assistant off on its very first syllable in an endless self-interruption loop.
+
+Swar solves this with an ultra-lightweight **3-Mode Barge-In Guard** powered by the **CAM++ (D-TDNN)** speaker embedding model (~28MB ONNX, **~3ms CPU latency** via `onnxruntime`):
+
+```
+                       ┌─────────────────────────────────────┐
+                       │     Incoming Microphone Audio       │
+                       └──────────────────┬──────────────────┘
+                                          │
+                                          ▼
+                       ┌─────────────────────────────────────┐
+                       │   CAM++ 192-dim Embedding (3ms)     │
+                       └──────────────────┬──────────────────┘
+                                          │
+                  ┌───────────────────────┴───────────────────────┐
+                  │                                               │
+                  ▼                                               ▼
+     [Mode: anti_kokoro (Default)]                 [Mode: speaker_recognition]
+┌──────────────────────────────────────┐       ┌──────────────────────────────────────┐
+│ Matches Kokoro Voiceprints?          │       │ Matches Authorized User Whitelist?   │
+│ - Yes (sim >= 0.60): Suppress Echo!  │       │ - Yes (sim >= 0.65): Allow Barge-In! │
+│ - No  (sim <  0.60): Human Barge-In! │       │ - No  (sim <  0.65): Ignore / Mute   │
+└──────────────────────────────────────┘       └──────────────────────────────────────┘
+```
+
+### The 3 Guard Modes
+
+| Mode | Behavior | Who Can Barge-in | Best For |
+| :--- | :--- | :--- | :--- |
+| **`anti_kokoro`** *(Default)* | Rejects assistant's own voiceprint from speakers. | **Anyone** (User, friends, etc.) | Open laptop/desktop speakers with **zero prior enrollment**. |
+| **`speaker_recognition`** | Matches speech against enrolled user voiceprints in `~/.cache/swar/voiceprints/`. | **Only enrolled users** | Personalized assistants (ignores TV, background strangers, and assistant echo). |
+| **`off`** | Raw Silero VAD without verification. | **Any sound** | Physical headphones or quiet environments. |
+
+---
+
+### 🎙️ Swar Voiceprint & Acoustic Studio (`tools/enroll_voice.py`)
+
+Swar includes a dedicated, standalone studio for enrolling users, acoustically calibrating machine speakers, and managing voiceprints:
+
+```bash
+# Launch full interactive studio menu
+python tools/enroll_voice.py
+```
+
+```text
+════════════════════════════════════════════════════════════
+         🎙️  Swar Voiceprint & Acoustic Studio
+════════════════════════════════════════════════════════════
+  1. Enroll Speaker Voice (Authorized User)
+  2. Enroll / Calibrate Kokoro Voice (Machine Acoustic Echo)
+  3. List All Enrolled Voiceprints (Users & Kokoro)
+  4. Delete a Speaker Voiceprint
+  5. Delete a Kokoro Voiceprint
+  6. Test Live Speaker Recognition (Mic Verification)
+  7. Exit
+════════════════════════════════════════════════════════════
+```
+
+#### Key Capabilities:
+
+1. **User Speaker Enrollment**:
+   - Enrolls authorized human users:
+     ```bash
+     python tools/enroll_voice.py --user vicky
+     ```
+   - Checks for a quiet environment and records 6 seconds of speech with RMS energy validation, saving an L2-normalized 192-dim embedding to `~/.cache/swar/voiceprints/<name>.npy`.
+
+2. **Multi-Kokoro Acoustic Speaker Calibration**:
+   - Kokoro supports dozens of voices (`af_bella`, `af_heart`, `am_adam`, `bf_emma`, etc.). You can calibrate as many voices as you like:
+     ```bash
+     python tools/enroll_voice.py --kokoro
+     ```
+   - **Voice Selection Table**: Displays 25 curated voices with accent, gender, and description.
+   - **Audio Preview**: Prompts `Press [Enter] to play a sound preview...` so you can listen before calibrating.
+   - **Acoustic Calibration**: Plays reference speech through laptop speakers while simultaneously recording through the microphone. This captures your exact chassis resonance, speaker frequency response, and room reverberation.
+
+3. **Voice Deletion**:
+   - Delete speaker or Kokoro voiceprints interactively or via CLI:
+     ```bash
+     python tools/enroll_voice.py --delete vicky
+     python tools/enroll_voice.py --delete-kokoro af_bella
+     ```
+
+4. **Live Verification & Listing**:
+   - View all registered voiceprints:
+     ```bash
+     python tools/enroll_voice.py --list
+     ```
+   - Test live microphone recognition with real-time similarity metrics:
+     ```bash
+     python tools/enroll_voice.py --test
+     ```
+
+---
+
 ## 🛠️ Installation & Setup
 
 ### 1. Prerequisites
@@ -214,6 +313,10 @@ Speak into your mic:
 - The assistant streams responses sentence-by-sentence.
 - Sentence 1 speaks immediately while Sentence 2 is synthesizing in the background.
 - **Test Barge-In**: Start talking while the assistant is speaking. Playback cuts off within ~21ms without driver faults, and your interruption is transcribed cleanly.
+- **Open Laptop Speakers vs Personalized**:
+  - Open speakers (default): Uses `--barge-guard anti_kokoro` to reject assistant voice echo with zero setup.
+  - Personalized mode: Use `--barge-guard speaker_recognition` so only your enrolled voice can talk/interrupt.
+  - Earphones: Use `--barge-guard off` for pure raw VAD.
 
 ### Test 3: Wake Word & Wake Sentence Mode
 Run voice chat in hands-free wake word standby:
@@ -407,6 +510,12 @@ wake_word:
       timeout: 10.0
     - phrase: "take a note"
       timeout: 30.0
+
+barge_in_guard:
+  mode: "anti_kokoro"          # "anti_kokoro" (default), "speaker_recognition", or "off"
+  user_similarity_threshold: 0.65       # Min cosine similarity for authorized user
+  kokoro_similarity_threshold: 0.60     # Min cosine similarity to classify as Kokoro echo
+  authorized_speakers: []               # Whitelist (empty = all in ~/.cache/swar/voiceprints/)
 ```
 
 ---
@@ -425,6 +534,7 @@ Included in the deep-dive:
 5. Real-time streaming suppression of LLM thinking tokens (`<think>...</think>`).
 6. The "Relic" wake word bug and sentence-wide matching.
 7. Detailed measurement protocols and benchmark methodology.
+8. The open-speaker acoustic feedback & infinite self-interruption loop (CAM++ voiceprint barge-in guard).
 
 ---
 
